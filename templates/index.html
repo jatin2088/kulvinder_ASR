@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Punjabi Word Corrector</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1e2329;
+      --muted: #5f6b7a;
+      --line: #d7dde5;
+      --paper: #fbfcfe;
+      --panel: #ffffff;
+      --accent: #0f7c80;
+      --accent-dark: #075d61;
+      --good: #237a4b;
+      --warn: #a04f12;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--paper);
+      color: var(--ink);
+    }
+
+    main {
+      width: min(920px, 100%);
+      margin: 0 auto;
+      min-height: 100vh;
+      padding: 18px;
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 8px 0;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(22px, 5vw, 34px);
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .badge {
+      border: 1px solid var(--line);
+      padding: 8px 10px;
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 14px;
+      white-space: nowrap;
+      background: var(--panel);
+    }
+
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .controls {
+      display: grid;
+      gap: 14px;
+    }
+
+    .button-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 8px;
+      min-height: 56px;
+      padding: 0 16px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 17px;
+      font-weight: 700;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+
+    button.secondary {
+      background: #2d3748;
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: wait;
+    }
+
+    .level {
+      height: 14px;
+      background: #e9eef5;
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+    }
+
+    .level > div {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), #e0a22d);
+      transition: width 80ms linear;
+    }
+
+    .slider-row {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    .result {
+      display: grid;
+      place-items: center;
+      text-align: center;
+      min-height: 210px;
+      gap: 8px;
+    }
+
+    .word {
+      font-size: clamp(54px, 18vw, 112px);
+      line-height: 1;
+      font-weight: 900;
+      color: var(--accent-dark);
+      word-break: keep-all;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: #f6f8fb;
+    }
+
+    .status {
+      color: var(--muted);
+      min-height: 22px;
+      font-size: 15px;
+    }
+
+    .history {
+      display: grid;
+      gap: 8px;
+    }
+
+    .history-row {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 0;
+      border-top: 1px solid var(--line);
+      font-size: 15px;
+    }
+
+    .history-row:first-child { border-top: 0; }
+
+    @media (max-width: 640px) {
+      main { padding: 12px; }
+      header { align-items: flex-start; flex-direction: column; }
+      .button-row { grid-template-columns: 1fr; }
+      section { padding: 14px; }
+      .history-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Punjabi Word Corrector</h1>
+      <div class="badge">{{ words|length }} words</div>
+    </header>
+
+    <section class="controls">
+      <div class="button-row">
+        <button id="autoButton">Auto Listen</button>
+        <button id="holdButton" class="secondary">Hold To Speak</button>
+      </div>
+      <div class="level" aria-label="Microphone level"><div id="levelFill"></div></div>
+      <div class="slider-row">
+        <span>Quiet</span>
+        <input id="threshold" type="range" min="0.006" max="0.060" step="0.002" value="0.020">
+        <span>Noise</span>
+      </div>
+      <div id="status" class="status">Ready</div>
+    </section>
+
+    <section class="result">
+      <div id="word" class="word">---</div>
+      <div class="meta">
+        <span id="confidence" class="pill">Confidence: --</span>
+        <span id="quality" class="pill">Detected: --</span>
+      </div>
+      <audio id="referenceAudio" controls></audio>
+    </section>
+
+    <section>
+      <div id="history" class="history"></div>
+    </section>
+  </main>
+
+  <script>
+    const autoButton = document.getElementById("autoButton");
+    const holdButton = document.getElementById("holdButton");
+    const levelFill = document.getElementById("levelFill");
+    const thresholdInput = document.getElementById("threshold");
+    const statusEl = document.getElementById("status");
+    const wordEl = document.getElementById("word");
+    const confidenceEl = document.getElementById("confidence");
+    const qualityEl = document.getElementById("quality");
+    const audioEl = document.getElementById("referenceAudio");
+    const historyEl = document.getElementById("history");
+
+    let audioContext = null;
+    let stream = null;
+    let source = null;
+    let processor = null;
+    let autoMode = false;
+    let manualMode = false;
+    let recording = false;
+    let chunks = [];
+    let prebuffer = [];
+    let startedAt = 0;
+    let silentMs = 0;
+    let lastTick = 0;
+    let busy = false;
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    async function ensureMic() {
+      if (audioContext && stream) return;
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      source = audioContext.createMediaStreamSource(stream);
+      processor = audioContext.createScriptProcessor(2048, 1, 1);
+      processor.onaudioprocess = onAudioProcess;
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+    }
+
+    function rms(samples) {
+      let sum = 0;
+      for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+      return Math.sqrt(sum / Math.max(1, samples.length));
+    }
+
+    function onAudioProcess(event) {
+      const input = event.inputBuffer.getChannelData(0);
+      const copy = new Float32Array(input);
+      const now = performance.now();
+      const elapsed = lastTick ? now - lastTick : 0;
+      lastTick = now;
+
+      const level = rms(copy);
+      const threshold = Number(thresholdInput.value);
+      levelFill.style.width = `${Math.min(100, level / Math.max(threshold * 3, 0.001) * 100)}%`;
+
+      prebuffer.push(copy);
+      const prebufferLimit = Math.ceil(audioContext.sampleRate * 0.35 / copy.length);
+      if (prebuffer.length > prebufferLimit) prebuffer.shift();
+
+      if (manualMode) {
+        if (!recording) startRecording(false);
+        chunks.push(copy);
+        if (performance.now() - startedAt > 2800) stopAndSend();
+        return;
+      }
+
+      if (!autoMode || busy) return;
+
+      if (!recording && level >= threshold) {
+        startRecording(true);
+        chunks.push(...prebuffer);
+      }
+
+      if (recording) {
+        chunks.push(copy);
+        silentMs = level < threshold * 0.75 ? silentMs + elapsed : 0;
+        const duration = performance.now() - startedAt;
+        if ((duration > 450 && silentMs > 650) || duration > 3200) stopAndSend();
+      }
+    }
+
+    function startRecording(fromAuto) {
+      recording = true;
+      chunks = fromAuto ? chunks : [];
+      silentMs = 0;
+      startedAt = performance.now();
+      setStatus("Listening...");
+    }
+
+    async function stopAndSend() {
+      if (!recording || busy) return;
+      recording = false;
+      autoMode = false;
+      manualMode = false;
+      busy = true;
+      autoButton.disabled = true;
+      holdButton.disabled = true;
+      setStatus("Correcting...");
+
+      const wavBlob = encodeWav(mergeChunks(chunks), audioContext.sampleRate, 16000);
+      chunks = [];
+
+      try {
+        const form = new FormData();
+        form.append("audio", wavBlob, "speech.wav");
+        const response = await fetch("/predict", { method: "POST", body: form });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Prediction failed");
+        showResult(result);
+      } catch (error) {
+        setStatus(error.message);
+      } finally {
+        busy = false;
+        autoButton.disabled = false;
+        holdButton.disabled = false;
+        autoButton.textContent = "Auto Listen";
+      }
+    }
+
+    function mergeChunks(parts) {
+      const total = parts.reduce((sum, part) => sum + part.length, 0);
+      const merged = new Float32Array(total);
+      let offset = 0;
+      for (const part of parts) {
+        merged.set(part, offset);
+        offset += part.length;
+      }
+      return merged;
+    }
+
+    function downsample(buffer, sourceRate, targetRate) {
+      if (sourceRate === targetRate) return buffer;
+      const ratio = sourceRate / targetRate;
+      const length = Math.round(buffer.length / ratio);
+      const result = new Float32Array(length);
+      for (let i = 0; i < length; i++) {
+        const start = Math.floor(i * ratio);
+        const end = Math.min(buffer.length, Math.floor((i + 1) * ratio));
+        let sum = 0;
+        for (let j = start; j < end; j++) sum += buffer[j];
+        result[i] = sum / Math.max(1, end - start);
+      }
+      return result;
+    }
+
+    function encodeWav(samples, sourceRate, targetRate) {
+      const pcm = downsample(samples, sourceRate, targetRate);
+      const buffer = new ArrayBuffer(44 + pcm.length * 2);
+      const view = new DataView(buffer);
+
+      writeString(view, 0, "RIFF");
+      view.setUint32(4, 36 + pcm.length * 2, true);
+      writeString(view, 8, "WAVE");
+      writeString(view, 12, "fmt ");
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, targetRate, true);
+      view.setUint32(28, targetRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeString(view, 36, "data");
+      view.setUint32(40, pcm.length * 2, true);
+
+      let offset = 44;
+      for (let i = 0; i < pcm.length; i++, offset += 2) {
+        const sample = Math.max(-1, Math.min(1, pcm[i]));
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      }
+      return new Blob([view], { type: "audio/wav" });
+    }
+
+    function writeString(view, offset, text) {
+      for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
+    }
+
+    function showResult(result) {
+      wordEl.textContent = result.word;
+      confidenceEl.textContent = `Confidence: ${(result.confidence * 100).toFixed(1)}%`;
+      qualityEl.textContent = `Detected: ${result.quality_label}`;
+      audioEl.src = `${result.reference_url}?t=${Date.now()}`;
+      audioEl.play().catch(() => {});
+      setStatus("Ready");
+
+      const row = document.createElement("div");
+      row.className = "history-row";
+      row.innerHTML = `<strong>${result.word}</strong><span>${(result.confidence * 100).toFixed(1)}%</span><span>${result.quality_label}</span>`;
+      historyEl.prepend(row);
+    }
+
+    autoButton.addEventListener("click", async () => {
+      try {
+        await ensureMic();
+        await audioContext.resume();
+        autoMode = !autoMode;
+        manualMode = false;
+        recording = false;
+        autoButton.textContent = autoMode ? "Stop Listening" : "Auto Listen";
+        setStatus(autoMode ? "Listening..." : "Ready");
+      } catch (error) {
+        setStatus(error.message);
+      }
+    });
+
+    async function beginManual() {
+      try {
+        await ensureMic();
+        await audioContext.resume();
+        manualMode = true;
+        autoMode = false;
+        startRecording(false);
+        chunks = [];
+        setStatus("Listening...");
+      } catch (error) {
+        setStatus(error.message);
+      }
+    }
+
+    function endManual() {
+      if (manualMode || recording) stopAndSend();
+    }
+
+    holdButton.addEventListener("mousedown", beginManual);
+    holdButton.addEventListener("touchstart", (event) => { event.preventDefault(); beginManual(); }, { passive: false });
+    holdButton.addEventListener("mouseup", endManual);
+    holdButton.addEventListener("mouseleave", endManual);
+    holdButton.addEventListener("touchend", (event) => { event.preventDefault(); endManual(); }, { passive: false });
+  </script>
+</body>
+</html>
