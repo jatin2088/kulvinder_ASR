@@ -3,19 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Punjabi Word Corrector</title>
+  <title>Muharani Child Assistance</title>
   <style>
     :root {
       color-scheme: light;
-      --ink: #1e2329;
-      --muted: #5f6b7a;
-      --line: #d7dde5;
-      --paper: #fbfcfe;
+      --ink: #20242a;
+      --muted: #647084;
+      --line: #d9e0ea;
+      --paper: #f8fafc;
       --panel: #ffffff;
-      --accent: #0f7c80;
-      --accent-dark: #075d61;
-      --good: #237a4b;
-      --warn: #a04f12;
+      --accent: #08756f;
+      --accent-dark: #075a55;
+      --record: #b3261e;
+      --ready: #245f45;
     }
 
     * { box-sizing: border-box; }
@@ -28,83 +28,109 @@
     }
 
     main {
-      width: min(920px, 100%);
+      width: min(760px, 100%);
       margin: 0 auto;
       min-height: 100vh;
-      padding: 18px;
+      padding: 14px;
       display: grid;
-      gap: 14px;
+      gap: 12px;
       align-content: start;
     }
 
     header {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: center;
-      padding: 8px 0;
+      padding: 8px 2px 2px;
     }
 
     h1 {
       margin: 0;
-      font-size: clamp(22px, 5vw, 34px);
-      font-weight: 800;
+      font-size: clamp(25px, 7vw, 38px);
+      font-weight: 850;
       letter-spacing: 0;
-    }
-
-    .badge {
-      border: 1px solid var(--line);
-      padding: 8px 10px;
-      border-radius: 8px;
-      color: var(--muted);
-      font-size: 14px;
-      white-space: nowrap;
-      background: var(--panel);
     }
 
     section {
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
-      padding: 16px;
+      padding: 14px;
     }
 
-    .controls {
+    .record-panel {
       display: grid;
-      gap: 14px;
+      gap: 12px;
     }
 
-    .button-row {
+    .practice-card {
+      display: grid;
+      grid-template-columns: 48px 1fr 48px;
+      gap: 10px;
+      align-items: center;
+      text-align: center;
+    }
+
+    .practice-card button {
+      min-height: 48px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #eef4f5;
+      color: var(--ink);
+      font-size: 24px;
+      font-weight: 800;
+    }
+
+    .practice-word {
+      min-height: 82px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f9fbfd;
+      color: var(--accent-dark);
+      font-size: clamp(42px, 16vw, 84px);
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .speak-button {
+      min-height: 88px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--ready);
+      color: #fff;
+      font-size: clamp(22px, 7vw, 34px);
+      font-weight: 850;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+
+    .speak-button.recording {
+      background: var(--record);
+    }
+
+    .speak-button:disabled {
+      opacity: 0.65;
+      cursor: wait;
+    }
+
+    .small-actions {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 10px;
     }
 
-    button {
-      border: 0;
+    .small-actions button {
+      min-height: 48px;
+      border: 1px solid var(--line);
       border-radius: 8px;
-      min-height: 56px;
-      padding: 0 16px;
-      background: var(--accent);
-      color: #fff;
-      font-size: 17px;
+      background: #eef4f5;
+      color: var(--ink);
       font-weight: 700;
-      cursor: pointer;
-      touch-action: manipulation;
-    }
-
-    button.secondary {
-      background: #2d3748;
-    }
-
-    button:disabled {
-      opacity: 0.55;
-      cursor: wait;
+      font-size: 15px;
     }
 
     .level {
-      height: 14px;
-      background: #e9eef5;
+      height: 16px;
+      background: #e8edf4;
       border-radius: 999px;
       overflow: hidden;
       border: 1px solid var(--line);
@@ -113,34 +139,26 @@
     .level > div {
       height: 100%;
       width: 0%;
-      background: linear-gradient(90deg, var(--accent), #e0a22d);
-      transition: width 80ms linear;
+      background: linear-gradient(90deg, #0f7c80, #d28a18);
+      transition: width 60ms linear;
     }
 
-    .slider-row {
-      display: grid;
-      grid-template-columns: auto 1fr auto;
-      gap: 10px;
-      align-items: center;
+    .status {
       color: var(--muted);
-      font-size: 14px;
-    }
-
-    input[type="range"] {
-      width: 100%;
-      accent-color: var(--accent);
+      min-height: 22px;
+      font-size: 15px;
     }
 
     .result {
+      min-height: 230px;
       display: grid;
       place-items: center;
       text-align: center;
-      min-height: 210px;
-      gap: 8px;
+      gap: 10px;
     }
 
     .word {
-      font-size: clamp(54px, 18vw, 112px);
+      font-size: clamp(62px, 22vw, 124px);
       line-height: 1;
       font-weight: 900;
       color: var(--accent-dark);
@@ -150,8 +168,8 @@
     .meta {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
       justify-content: center;
+      gap: 8px;
       color: var(--muted);
       font-size: 15px;
     }
@@ -160,13 +178,11 @@
       border: 1px solid var(--line);
       border-radius: 999px;
       padding: 6px 10px;
-      background: #f6f8fb;
+      background: #f5f8fb;
     }
 
-    .status {
-      color: var(--muted);
-      min-height: 22px;
-      font-size: 15px;
+    audio {
+      width: min(100%, 430px);
     }
 
     .history {
@@ -176,51 +192,51 @@
 
     .history-row {
       display: grid;
-      grid-template-columns: 1fr auto auto;
-      gap: 10px;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
       align-items: center;
       padding: 10px 0;
       border-top: 1px solid var(--line);
       font-size: 15px;
     }
 
-    .history-row:first-child { border-top: 0; }
+    .history-row:first-child {
+      border-top: 0;
+    }
 
-    @media (max-width: 640px) {
-      main { padding: 12px; }
-      header { align-items: flex-start; flex-direction: column; }
-      .button-row { grid-template-columns: 1fr; }
-      section { padding: 14px; }
-      .history-row { grid-template-columns: 1fr; }
+    @media (max-width: 560px) {
+      main { padding: 10px; }
+      section { padding: 12px; }
+      .small-actions { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
   <main>
     <header>
-      <h1>Punjabi Word Corrector</h1>
-      <div class="badge">{{ words|length }} words</div>
+      <h1>Muharani Child Assistance</h1>
     </header>
 
-    <section class="controls">
-      <div class="button-row">
-        <button id="autoButton">Auto Listen</button>
-        <button id="holdButton" class="secondary">Hold To Speak</button>
+    <section class="record-panel">
+      <div class="practice-card">
+        <button id="prevButton" aria-label="Previous word">&lt;</button>
+        <div id="practiceWord" class="practice-word">---</div>
+        <button id="nextButton" aria-label="Next word">&gt;</button>
       </div>
+      <button id="speakButton" class="speak-button">Start Speaking</button>
       <div class="level" aria-label="Microphone level"><div id="levelFill"></div></div>
-      <div class="slider-row">
-        <span>Quiet</span>
-        <input id="threshold" type="range" min="0.006" max="0.060" step="0.002" value="0.020">
-        <span>Noise</span>
+      <div class="small-actions">
+        <button id="noiseButton">Calibrate Room Noise</button>
+        <button id="replayButton">Replay Correct Sound</button>
       </div>
-      <div id="status" class="status">Ready</div>
+      <div id="status" class="status">Tap Start Speaking, say one word, then tap Stop & Correct.</div>
     </section>
 
     <section class="result">
       <div id="word" class="word">---</div>
       <div class="meta">
         <span id="confidence" class="pill">Confidence: --</span>
-        <span id="quality" class="pill">Detected: --</span>
+        <span id="quality" class="pill">Pronunciation: --</span>
       </div>
       <audio id="referenceAudio" controls></audio>
     </section>
@@ -231,10 +247,14 @@
   </main>
 
   <script>
-    const autoButton = document.getElementById("autoButton");
-    const holdButton = document.getElementById("holdButton");
+    const practiceWords = {{ words|tojson }};
+    const practiceWordEl = document.getElementById("practiceWord");
+    const prevButton = document.getElementById("prevButton");
+    const nextButton = document.getElementById("nextButton");
+    const speakButton = document.getElementById("speakButton");
+    const noiseButton = document.getElementById("noiseButton");
+    const replayButton = document.getElementById("replayButton");
     const levelFill = document.getElementById("levelFill");
-    const thresholdInput = document.getElementById("threshold");
     const statusEl = document.getElementById("status");
     const wordEl = document.getElementById("word");
     const confidenceEl = document.getElementById("confidence");
@@ -246,15 +266,26 @@
     let stream = null;
     let source = null;
     let processor = null;
-    let autoMode = false;
-    let manualMode = false;
     let recording = false;
-    let chunks = [];
-    let prebuffer = [];
-    let startedAt = 0;
-    let silentMs = 0;
-    let lastTick = 0;
     let busy = false;
+    let chunks = [];
+    let startedAt = 0;
+    let latestLevel = 0;
+    let noiseFloor = 0.012;
+    let calibration = null;
+    let lastResult = null;
+    let currentWordId = Number(localStorage.getItem("currentWordId") || "0");
+
+    function updatePracticeWord() {
+      if (!practiceWords.length) return;
+      currentWordId = (currentWordId + practiceWords.length) % practiceWords.length;
+      localStorage.setItem("currentWordId", String(currentWordId));
+      practiceWordEl.textContent = practiceWords[currentWordId];
+      wordEl.textContent = practiceWords[currentWordId];
+      audioEl.src = `/reference/${currentWordId}`;
+      confidenceEl.textContent = "Confidence: --";
+      qualityEl.textContent = "Pronunciation: --";
+    }
 
     function setStatus(text) {
       statusEl.textContent = text;
@@ -262,11 +293,15 @@
 
     async function ensureMic() {
       if (audioContext && stream) return;
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Microphone is not available in this browser.");
+      }
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
+          autoGainControl: true,
+          channelCount: 1
         }
       });
       audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -286,75 +321,19 @@
     function onAudioProcess(event) {
       const input = event.inputBuffer.getChannelData(0);
       const copy = new Float32Array(input);
-      const now = performance.now();
-      const elapsed = lastTick ? now - lastTick : 0;
-      lastTick = now;
+      latestLevel = rms(copy);
+      const scale = Math.max(noiseFloor * 6, 0.02);
+      levelFill.style.width = `${Math.min(100, latestLevel / scale * 100)}%`;
 
-      const level = rms(copy);
-      const threshold = Number(thresholdInput.value);
-      levelFill.style.width = `${Math.min(100, level / Math.max(threshold * 3, 0.001) * 100)}%`;
-
-      prebuffer.push(copy);
-      const prebufferLimit = Math.ceil(audioContext.sampleRate * 0.35 / copy.length);
-      if (prebuffer.length > prebufferLimit) prebuffer.shift();
-
-      if (manualMode) {
-        if (!recording) startRecording(false);
-        chunks.push(copy);
-        if (performance.now() - startedAt > 2800) stopAndSend();
-        return;
-      }
-
-      if (!autoMode || busy) return;
-
-      if (!recording && level >= threshold) {
-        startRecording(true);
-        chunks.push(...prebuffer);
+      if (calibration) {
+        calibration.levels.push(latestLevel);
       }
 
       if (recording) {
         chunks.push(copy);
-        silentMs = level < threshold * 0.75 ? silentMs + elapsed : 0;
-        const duration = performance.now() - startedAt;
-        if ((duration > 450 && silentMs > 650) || duration > 3200) stopAndSend();
-      }
-    }
-
-    function startRecording(fromAuto) {
-      recording = true;
-      chunks = fromAuto ? chunks : [];
-      silentMs = 0;
-      startedAt = performance.now();
-      setStatus("Listening...");
-    }
-
-    async function stopAndSend() {
-      if (!recording || busy) return;
-      recording = false;
-      autoMode = false;
-      manualMode = false;
-      busy = true;
-      autoButton.disabled = true;
-      holdButton.disabled = true;
-      setStatus("Correcting...");
-
-      const wavBlob = encodeWav(mergeChunks(chunks), audioContext.sampleRate, 16000);
-      chunks = [];
-
-      try {
-        const form = new FormData();
-        form.append("audio", wavBlob, "speech.wav");
-        const response = await fetch("/predict", { method: "POST", body: form });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.error || "Prediction failed");
-        showResult(result);
-      } catch (error) {
-        setStatus(error.message);
-      } finally {
-        busy = false;
-        autoButton.disabled = false;
-        holdButton.disabled = false;
-        autoButton.textContent = "Auto Listen";
+        if (performance.now() - startedAt > 5000) {
+          stopRecording();
+        }
       }
     }
 
@@ -372,7 +351,7 @@
     function downsample(buffer, sourceRate, targetRate) {
       if (sourceRate === targetRate) return buffer;
       const ratio = sourceRate / targetRate;
-      const length = Math.round(buffer.length / ratio);
+      const length = Math.max(1, Math.round(buffer.length / ratio));
       const result = new Float32Array(length);
       for (let i = 0; i < length; i++) {
         const start = Math.floor(i * ratio);
@@ -384,11 +363,32 @@
       return result;
     }
 
+    function trimEdges(samples, threshold) {
+      const frame = 320;
+      let start = 0;
+      let end = samples.length;
+      for (let i = 0; i + frame < samples.length; i += frame) {
+        if (rms(samples.subarray(i, i + frame)) > threshold) {
+          start = Math.max(0, i - frame * 2);
+          break;
+        }
+      }
+      for (let i = samples.length - frame; i > 0; i -= frame) {
+        if (rms(samples.subarray(i, i + frame)) > threshold) {
+          end = Math.min(samples.length, i + frame * 3);
+          break;
+        }
+      }
+      return samples.subarray(start, Math.max(start, end));
+    }
+
     function encodeWav(samples, sourceRate, targetRate) {
-      const pcm = downsample(samples, sourceRate, targetRate);
+      let pcm = downsample(samples, sourceRate, targetRate);
+      const speechThreshold = Math.max(noiseFloor * 2.2, 0.008);
+      pcm = trimEdges(pcm, speechThreshold);
+
       const buffer = new ArrayBuffer(44 + pcm.length * 2);
       const view = new DataView(buffer);
-
       writeString(view, 0, "RIFF");
       view.setUint32(4, 36 + pcm.length * 2, true);
       writeString(view, 8, "WAVE");
@@ -408,64 +408,142 @@
         const sample = Math.max(-1, Math.min(1, pcm[i]));
         view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
       }
-      return new Blob([view], { type: "audio/wav" });
+      return { blob: new Blob([view], { type: "audio/wav" }), duration: pcm.length / targetRate, rms: rms(pcm) };
     }
 
     function writeString(view, offset, text) {
       for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
     }
 
+    async function startRecording() {
+      await ensureMic();
+      await audioContext.resume();
+      chunks = [];
+      recording = true;
+      startedAt = performance.now();
+      speakButton.textContent = "Stop & Correct";
+      speakButton.classList.add("recording");
+      setStatus("Recording...");
+    }
+
+    async function stopRecording() {
+      if (!recording || busy) return;
+      recording = false;
+      busy = true;
+      speakButton.disabled = true;
+      speakButton.textContent = "Correcting...";
+      speakButton.classList.remove("recording");
+      setStatus("Processing recording...");
+
+      const samples = mergeChunks(chunks);
+      chunks = [];
+      const encoded = encodeWav(samples, audioContext.sampleRate, 16000);
+
+      if (encoded.duration < 0.25 || encoded.rms < 0.002) {
+        resetButton();
+        setStatus("Recording was too short or quiet. Please speak closer and try again.");
+        return;
+      }
+
+      try {
+        const form = new FormData();
+        form.append("audio", encoded.blob, "speech.wav");
+        form.append("duration", encoded.duration.toFixed(4));
+        form.append("rms", encoded.rms.toFixed(6));
+        form.append("noise_floor", noiseFloor.toFixed(6));
+        form.append("target_word_id", String(currentWordId));
+        const response = await fetch("/predict", { method: "POST", body: form });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Prediction failed");
+        showResult(result);
+      } catch (error) {
+        setStatus(error.message);
+      } finally {
+        resetButton();
+      }
+    }
+
+    function resetButton() {
+      busy = false;
+      speakButton.disabled = false;
+      speakButton.textContent = "Start Speaking";
+      speakButton.classList.remove("recording");
+    }
+
     function showResult(result) {
+      lastResult = result;
       wordEl.textContent = result.word;
-      confidenceEl.textContent = `Confidence: ${(result.confidence * 100).toFixed(1)}%`;
-      qualityEl.textContent = `Detected: ${result.quality_label}`;
+      confidenceEl.textContent = `System check: ${(result.quality_confidence * 100).toFixed(1)}%`;
+      qualityEl.textContent = `Pronunciation: ${result.quality_label}`;
       audioEl.src = `${result.reference_url}?t=${Date.now()}`;
       audioEl.play().catch(() => {});
-      setStatus("Ready");
+      setStatus(`Saved test ${result.recording_id || ""}`.trim());
 
       const row = document.createElement("div");
       row.className = "history-row";
-      row.innerHTML = `<strong>${result.word}</strong><span>${(result.confidence * 100).toFixed(1)}%</span><span>${result.quality_label}</span>`;
+      row.innerHTML = `<strong>${result.word}</strong><span>${result.quality_label}</span>`;
       historyEl.prepend(row);
     }
 
-    autoButton.addEventListener("click", async () => {
+    prevButton.addEventListener("click", () => {
+      if (recording || busy) return;
+      currentWordId -= 1;
+      updatePracticeWord();
+    });
+
+    nextButton.addEventListener("click", () => {
+      if (recording || busy) return;
+      currentWordId += 1;
+      updatePracticeWord();
+    });
+
+    speakButton.addEventListener("click", async () => {
       try {
-        await ensureMic();
-        await audioContext.resume();
-        autoMode = !autoMode;
-        manualMode = false;
-        recording = false;
-        autoButton.textContent = autoMode ? "Stop Listening" : "Auto Listen";
-        setStatus(autoMode ? "Listening..." : "Ready");
+        if (busy) return;
+        if (recording) {
+          await stopRecording();
+        } else {
+          await startRecording();
+        }
       } catch (error) {
+        resetButton();
         setStatus(error.message);
       }
     });
 
-    async function beginManual() {
+    noiseButton.addEventListener("click", async () => {
       try {
         await ensureMic();
         await audioContext.resume();
-        manualMode = true;
-        autoMode = false;
-        startRecording(false);
-        chunks = [];
-        setStatus("Listening...");
+        calibration = { levels: [] };
+        noiseButton.disabled = true;
+        setStatus("Keep quiet for 2 seconds...");
+        setTimeout(() => {
+          const levels = calibration ? calibration.levels : [];
+          calibration = null;
+          if (levels.length) {
+            const sorted = [...levels].sort((a, b) => a - b);
+            noiseFloor = Math.max(0.006, sorted[Math.floor(sorted.length * 0.8)]);
+            setStatus(`Room noise calibrated.`);
+          } else {
+            setStatus("Could not calibrate room noise.");
+          }
+          noiseButton.disabled = false;
+        }, 2000);
       } catch (error) {
+        noiseButton.disabled = false;
         setStatus(error.message);
       }
-    }
+    });
 
-    function endManual() {
-      if (manualMode || recording) stopAndSend();
-    }
+    replayButton.addEventListener("click", () => {
+      if (audioEl.src) {
+        audioEl.currentTime = 0;
+        audioEl.play().catch(() => {});
+      }
+    });
 
-    holdButton.addEventListener("mousedown", beginManual);
-    holdButton.addEventListener("touchstart", (event) => { event.preventDefault(); beginManual(); }, { passive: false });
-    holdButton.addEventListener("mouseup", endManual);
-    holdButton.addEventListener("mouseleave", endManual);
-    holdButton.addEventListener("touchend", (event) => { event.preventDefault(); endManual(); }, { passive: false });
+    updatePracticeWord();
   </script>
 </body>
 </html>

@@ -130,7 +130,9 @@ def trim_silence(audio, min_keep=0.25):
     if not energies:
         return audio
     energies = np.asarray(energies)
-    threshold = max(0.015, float(np.percentile(energies, 75)) * 0.2)
+    noise_floor = float(np.percentile(energies, 20))
+    speech_level = float(np.percentile(energies, 90))
+    threshold = max(0.010, noise_floor * 2.8, speech_level * 0.16)
     active = np.where(energies > threshold)[0]
     if active.size == 0:
         return audio
@@ -203,6 +205,8 @@ def log_mel_features(audio):
     )
     power = np.abs(spec).astype(np.float32) ** 2
     mel = np.matmul(_MEL_FILTERS, power)
+    noise_profile = np.percentile(mel, 20, axis=1, keepdims=True)
+    mel = np.maximum(mel - 0.85 * noise_profile, mel * 0.03)
     logmel = np.log10(np.maximum(mel, 1e-8))
     logmel = (logmel - float(logmel.mean())) / (float(logmel.std()) + 1e-6)
     return logmel.astype(np.float32)
