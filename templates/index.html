@@ -95,6 +95,17 @@
       min-height: 22px;
       font-size: 15px;
     }
+    .setup-warning {
+      display: none;
+      border: 1px solid #e4b456;
+      background: #fff7e6;
+      color: #6b4300;
+      border-radius: 8px;
+      padding: 12px;
+      font-weight: 700;
+      line-height: 1.4;
+    }
+    .setup-warning.visible { display: block; }
     .result {
       min-height: 250px;
       display: grid;
@@ -177,6 +188,7 @@
     <h1>Muharani Child Assistance</h1>
 
     <section class="record-panel">
+      <div id="setupWarning" class="setup-warning"></div>
       <button id="speakButton" class="speak-button">Start Speaking</button>
       <div class="level" aria-label="Microphone level"><div id="levelFill"></div></div>
       <div class="actions">
@@ -208,6 +220,7 @@
 
   <script>
     const speakButton = document.getElementById("speakButton");
+    const setupWarning = document.getElementById("setupWarning");
     const noiseButton = document.getElementById("noiseButton");
     const replayButton = document.getElementById("replayButton");
     const calibrationButton = document.getElementById("calibrationButton");
@@ -237,6 +250,7 @@
     let calibration = null;
     let lastAccepted = null;
     let lastResult = null;
+    let feedbackSamples = 0;
 
     words.forEach((word, index) => {
       const option = document.createElement("option");
@@ -246,6 +260,23 @@
     });
 
     function setStatus(text) { statusEl.textContent = text; }
+
+    async function refreshHealth() {
+      try {
+        const response = await fetch("/health", { cache: "no-store" });
+        const health = await response.json();
+        feedbackSamples = Number(health.feedback_samples || 0);
+        if (feedbackSamples < 150) {
+          setupWarning.classList.add("visible");
+          setupWarning.textContent = `Calibration required: ${feedbackSamples} samples saved. Open Child Calibration and record at least 3 samples for each word.`;
+        } else {
+          setupWarning.classList.remove("visible");
+        }
+      } catch {
+        setupWarning.classList.add("visible");
+        setupWarning.textContent = "Could not check calibration status.";
+      }
+    }
 
     async function ensureMic() {
       if (audioContext && stream) return;
@@ -344,6 +375,11 @@
     }
 
     async function startRecording() {
+      if (feedbackSamples < 150) {
+        setStatus("Please complete Child Calibration first.");
+        window.location.href = "/calibrate";
+        return;
+      }
       await ensureMic();
       await audioContext.resume();
       chunks = [];
@@ -503,12 +539,14 @@
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "Could not save label");
         setStatus(`Saved correction: ${result.word}`);
+        refreshHealth();
       } catch (error) {
         setStatus(error.message);
       } finally {
         saveFeedbackButton.disabled = false;
       }
     });
+    refreshHealth();
   </script>
 </body>
 </html>

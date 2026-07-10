@@ -66,6 +66,8 @@ For this closed 50-word app, use child-specific calibration instead of relying o
 
 The runtime screen still does not show a word before speaking. Calibration is an admin/teacher setup step that gives the matcher real examples from the target child/phone.
 
+Calibration requires persistent storage on Render. The Blueprint includes a disk mounted at `/opt/render/project/src/data`; if Render rejects the disk on the free plan, upgrade the service plan or add the disk manually from the Render dashboard.
+
 ## Deploy To Render
 
 Push this folder to GitHub, then create a new Render Web Service from the repo.

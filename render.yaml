@@ -5,3 +5,7 @@ services:
     plan: free
     buildCommand: pip install -r requirements-render.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120
+    disk:
+      name: app-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
