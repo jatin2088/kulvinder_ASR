@@ -18,8 +18,10 @@ MLP_MODEL_PATH = BASE_DIR / "models" / "mlp_word_model_np.npz"
 MANIFEST_PATH = BASE_DIR / "models" / "manifest.json"
 DATA_DIR = BASE_DIR / "data"
 RECORDINGS_DIR = DATA_DIR / "recordings"
+FEEDBACK_VECTOR_DIR = DATA_DIR / "feedback_vectors"
 RESULTS_JSONL = DATA_DIR / "results.jsonl"
 RESULTS_CSV = DATA_DIR / "results.csv"
+FEEDBACK_CSV = DATA_DIR / "feedback.csv"
 
 app = Flask(__name__)
 
@@ -43,6 +45,7 @@ if MANIFEST_PATH.exists():
         references.update(manifest.get("references", {}))
 
 RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+FEEDBACK_VECTOR_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def estimate_confidence(model, vector):
@@ -91,10 +94,54 @@ def word_probabilities(vector):
     return probs / probs.sum(axis=1, keepdims=True)
 
 
+def feedback_samples():
+    vectors = []
+    labels = []
+    for path in sorted(FEEDBACK_VECTOR_DIR.glob("*.npz")):
+        try:
+            data = np.load(path)
+            vector = data["vector"].astype(np.float32).reshape(-1)
+            word_id = int(np.asarray(data["word_id"]).reshape(-1)[0])
+            vectors.append(vector)
+            labels.append(word_id)
+        except Exception:
+            continue
+    if not vectors or len(vectors) != len(labels):
+        return None, None
+    return np.stack(vectors), np.asarray(labels, dtype=np.int64)
+
+
+def apply_feedback_probs(base_probs, vector):
+    feedback_vectors, labels = feedback_samples()
+    if feedback_vectors is None:
+        return base_probs, 0
+
+    query = vector.reshape(-1).astype(np.float32)
+    query_norm = query / (np.linalg.norm(query) + 1e-6)
+    sample_norms = feedback_vectors / (np.linalg.norm(feedback_vectors, axis=1, keepdims=True) + 1e-6)
+    sims = np.matmul(sample_norms, query_norm)
+    best = float(np.max(sims))
+    if best < 0.55:
+        return base_probs, len(labels)
+
+    feedback_probs = np.zeros_like(base_probs)
+    top = np.argsort(sims)[-7:]
+    weights = np.exp((sims[top] - sims[top].max()) * 12.0)
+    for idx, weight in zip(top, weights):
+        feedback_probs[0, labels[idx]] += weight
+    feedback_probs = feedback_probs / max(float(feedback_probs.sum()), 1e-6)
+
+    blend = 0.78 if best >= 0.72 else 0.55
+    return (1.0 - blend) * base_probs + blend * feedback_probs, len(labels)
+
+
 def top_predictions(vector, limit=3):
-    probs = word_probabilities(vector)
+    probs, feedback_count = apply_feedback_probs(word_probabilities(vector), vector)
     order = np.argsort(probs[0])[::-1][:limit]
-    return [{"word_id": int(i), "word": words[int(i)], "confidence": float(probs[0, i])} for i in order]
+    return (
+        [{"word_id": int(i), "word": words[int(i)], "confidence": float(probs[0, i])} for i in order],
+        feedback_count,
+    )
 
 
 def audio_stats(audio):
@@ -116,7 +163,7 @@ def predict_wav(path):
     logmel = log_mel_features(audio)
     vector = sklearn_feature_vector_from_logmel(logmel).reshape(1, -1)
 
-    alternatives = top_predictions(vector, limit=3)
+    alternatives, feedback_count = top_predictions(vector, limit=3)
     word_id = alternatives[0]["word_id"]
     quality_id = int(quality_model.predict(vector)[0]) if quality_model is not None else 1
 
@@ -132,6 +179,7 @@ def predict_wav(path):
         "model_guess_word": words[word_id],
         "model_guess_confidence": confidence,
         "model_kind": model_kind,
+        "feedback_samples": feedback_count,
         "quality": "normal" if quality_id == 1 else "incorrect",
         "quality_label": "Normal / correct" if quality_id == 1 else "Incorrect / needs practice",
         "quality_confidence": estimate_confidence(quality_model, vector) if quality_model is not None else 0.0,
@@ -167,6 +215,7 @@ def append_result(row):
                 "alternatives",
                 "accepted",
                 "model_kind",
+                "feedback_samples",
                 "recording_path",
                 "user_agent",
             ],
@@ -183,7 +232,14 @@ def index():
 
 @app.get("/health")
 def health():
-    return jsonify({"ok": True, "words": len(words), "model": model_kind})
+    feedback_vectors, _ = feedback_samples()
+    feedback_count = 0 if feedback_vectors is None else int(len(feedback_vectors))
+    return jsonify({"ok": True, "words": len(words), "model": model_kind, "feedback_samples": feedback_count})
+
+
+@app.get("/words")
+def word_list():
+    return jsonify([{"word_id": idx, "word": word} for idx, word in enumerate(words)])
 
 
 @app.post("/predict")
@@ -221,6 +277,7 @@ def predict():
             "alternatives": "",
             "accepted": "",
             "model_kind": model_kind,
+            "feedback_samples": "",
             "recording_path": str(recording_path),
             "user_agent": request.headers.get("User-Agent", ""),
             "error": str(exc),
@@ -246,6 +303,7 @@ def predict():
         "alternatives": json.dumps(result["alternatives"], ensure_ascii=False),
         "accepted": result["accepted"],
         "model_kind": result["model_kind"],
+        "feedback_samples": result["feedback_samples"],
         "recording_path": str(recording_path),
         "user_agent": request.headers.get("User-Agent", ""),
     }
@@ -262,14 +320,60 @@ def results_csv():
     return send_file(RESULTS_CSV, mimetype="text/csv", as_attachment=True, download_name="results.csv")
 
 
+def find_recording(recording_id):
+    if not recording_id.replace("-", "").isalnum():
+        return None
+    matches = sorted(RECORDINGS_DIR.glob(f"*_{recording_id}.wav"))
+    return matches[-1] if matches else None
+
+
+@app.post("/feedback")
+def feedback():
+    payload = request.get_json(silent=True) or request.form
+    recording_id = str(payload.get("recording_id", "")).strip()
+    word_id_raw = str(payload.get("word_id", "")).strip()
+    if not recording_id or not word_id_raw.isdigit():
+        return jsonify({"error": "recording_id and word_id are required"}), 400
+
+    word_id = int(word_id_raw)
+    if word_id < 0 or word_id >= len(words):
+        return jsonify({"error": "bad word id"}), 400
+
+    recording_path = find_recording(recording_id)
+    if recording_path is None:
+        return jsonify({"error": "recording not found"}), 404
+
+    audio = load_audio(recording_path)
+    vector = sklearn_feature_vector_from_logmel(log_mel_features(audio)).reshape(-1).astype(np.float32)
+    vector_path = FEEDBACK_VECTOR_DIR / f"{recording_id}_{word_id}.npz"
+    np.savez_compressed(vector_path, vector=vector, word_id=np.asarray([word_id], dtype=np.int64))
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    write_header = not FEEDBACK_CSV.exists()
+    with FEEDBACK_CSV.open("a", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["created_at", "recording_id", "word_id", "word", "recording_path", "vector_path"])
+        if write_header:
+            writer.writeheader()
+        writer.writerow(
+            {
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "recording_id": recording_id,
+                "word_id": word_id,
+                "word": words[word_id],
+                "recording_path": str(recording_path),
+                "vector_path": str(vector_path),
+            }
+        )
+
+    return jsonify({"ok": True, "recording_id": recording_id, "word_id": word_id, "word": words[word_id]})
+
+
 @app.get("/recordings/<recording_id>")
 def recording(recording_id):
-    if not recording_id.replace("-", "").isalnum():
-        return jsonify({"error": "bad recording id"}), 404
-    matches = sorted(RECORDINGS_DIR.glob(f"*_{recording_id}.wav"))
-    if not matches:
+    recording_path = find_recording(recording_id)
+    if recording_path is None:
         return jsonify({"error": "recording not found"}), 404
-    return send_file(matches[-1], mimetype="audio/wav", as_attachment=True, download_name=f"{recording_id}.wav")
+    return send_file(recording_path, mimetype="audio/wav", as_attachment=True, download_name=f"{recording_id}.wav")
 
 
 @app.get("/reference/<int:word_id>")

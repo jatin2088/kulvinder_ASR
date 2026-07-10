@@ -144,6 +144,27 @@
       font-size: 14px;
       line-height: 1.5;
     }
+    .feedback {
+      display: none;
+      width: min(100%, 430px);
+      gap: 8px;
+      grid-template-columns: 1fr auto;
+    }
+    .feedback.visible { display: grid; }
+    .feedback select,
+    .feedback button {
+      min-height: 44px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      font-size: 15px;
+      padding: 0 10px;
+    }
+    .feedback button {
+      background: #eef4f5;
+      font-weight: 750;
+    }
     @media (max-width: 560px) {
       main { padding: 10px; }
       section { padding: 12px; }
@@ -173,6 +194,10 @@
       </div>
       <div id="alternatives" class="alternatives"></div>
       <audio id="referenceAudio" controls></audio>
+      <div id="feedbackBox" class="feedback">
+        <select id="correctWordSelect" aria-label="Correct word"></select>
+        <button id="saveFeedbackButton">Save Correct Label</button>
+      </div>
     </section>
 
     <section>
@@ -192,6 +217,10 @@
     const alternativesEl = document.getElementById("alternatives");
     const audioEl = document.getElementById("referenceAudio");
     const historyEl = document.getElementById("history");
+    const feedbackBox = document.getElementById("feedbackBox");
+    const correctWordSelect = document.getElementById("correctWordSelect");
+    const saveFeedbackButton = document.getElementById("saveFeedbackButton");
+    const words = {{ words|tojson }};
 
     let audioContext = null;
     let stream = null;
@@ -205,6 +234,14 @@
     let noiseFloor = 0.012;
     let calibration = null;
     let lastAccepted = null;
+    let lastResult = null;
+
+    words.forEach((word, index) => {
+      const option = document.createElement("option");
+      option.value = String(index);
+      option.textContent = word;
+      correctWordSelect.appendChild(option);
+    });
 
     function setStatus(text) { statusEl.textContent = text; }
 
@@ -363,16 +400,19 @@
       confidenceEl.textContent = "Confidence: --";
       qualityEl.textContent = "Pronunciation: --";
       alternativesEl.textContent = "";
+      feedbackBox.classList.remove("visible");
       setStatus(message);
     }
 
     function showResult(result) {
       if (!result.accepted) {
+        lastResult = result;
         showRepeat("Low confidence. Please repeat the word clearly.");
         addHistory("Repeat needed", `${(result.confidence * 100).toFixed(1)}%`);
         return;
       }
 
+      lastResult = result;
       lastAccepted = result;
       wordEl.classList.remove("repeat");
       wordEl.textContent = result.word;
@@ -385,6 +425,8 @@
       audioEl.play().catch(() => {});
       setStatus(`Saved test ${result.recording_id || ""}`.trim());
       addHistory(result.word, `${(result.confidence * 100).toFixed(1)}%`);
+      correctWordSelect.value = String(result.word_id);
+      feedbackBox.classList.add("visible");
     }
 
     function addHistory(label, value) {
@@ -434,6 +476,31 @@
       if (lastAccepted && audioEl.src) {
         audioEl.currentTime = 0;
         audioEl.play().catch(() => {});
+      }
+    });
+
+    saveFeedbackButton.addEventListener("click", async () => {
+      if (!lastResult || !lastResult.recording_id) {
+        setStatus("No saved recording to label yet.");
+        return;
+      }
+      saveFeedbackButton.disabled = true;
+      try {
+        const response = await fetch("/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            recording_id: lastResult.recording_id,
+            word_id: correctWordSelect.value
+          })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Could not save label");
+        setStatus(`Saved correction: ${result.word}`);
+      } catch (error) {
+        setStatus(error.message);
+      } finally {
+        saveFeedbackButton.disabled = false;
       }
     });
   </script>

@@ -4,6 +4,8 @@ __pycache__/
 venv/
 dataset/
 data/
+render_recordings/
+render_results.csv
 models/features_cache.npz
 models/sklearn_features_cache.npz
 models/sklearn_noise_features_cache*.npz

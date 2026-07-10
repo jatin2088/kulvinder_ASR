@@ -54,6 +54,8 @@ Useful test/export URLs:
 
 `/health` should report `model: mlp_numpy`. `/results.csv` contains every test result, including top alternatives and the saved recording ID. Use `/recordings/<recording_id>` to download the exact WAV that the phone sent.
 
+If a prediction is wrong, choose the correct word in the feedback control after the result and click **Save Correct Label**. Those labeled phone recordings are used immediately by the server as calibration examples for future predictions.
+
 ## Deploy To Render
 
 Push this folder to GitHub, then create a new Render Web Service from the repo.
