@@ -62,6 +62,20 @@ def class_confidence(model, vector, class_id):
     return 0.0
 
 
+def top_predictions(model, vector, limit=3):
+    if hasattr(model, "decision_function"):
+        scores = np.asarray(model.decision_function(vector), dtype=np.float64)
+        if scores.ndim == 1:
+            scores = np.stack([-scores, scores], axis=1)
+        scores = scores - scores.max(axis=1, keepdims=True)
+        probs = np.exp(scores)
+        probs = probs / probs.sum(axis=1, keepdims=True)
+        order = np.argsort(probs[0])[::-1][:limit]
+        return [{"word_id": int(i), "word": words[int(i)], "confidence": float(probs[0, i])} for i in order]
+    pred = int(model.predict(vector)[0])
+    return [{"word_id": pred, "word": words[pred], "confidence": 1.0}]
+
+
 def audio_stats(audio):
     if audio.size == 0:
         return {"duration": 0.0, "rms": 0.0, "peak": 0.0}
@@ -87,10 +101,14 @@ def predict_wav(path, target_word_id=None):
         word_id = int(target_word_id)
     quality_id = int(quality_model.predict(vector)[0]) if quality_model is not None else 1
 
+    confidence = class_confidence(word_model, vector, word_id)
+    accepted = bool(confidence >= 0.12 or target_word_id is not None)
     return {
         "word_id": word_id,
         "word": words[word_id],
-        "confidence": class_confidence(word_model, vector, word_id),
+        "confidence": confidence,
+        "accepted": accepted,
+        "alternatives": top_predictions(word_model, vector, limit=3),
         "model_guess_word_id": guessed_word_id,
         "model_guess_word": words[guessed_word_id],
         "model_guess_confidence": estimate_confidence(word_model, vector),
@@ -129,6 +147,7 @@ def append_result(row):
                 "model_guess_word",
                 "model_guess_confidence",
                 "used_target",
+                "accepted",
                 "recording_path",
                 "user_agent",
             ],
@@ -208,6 +227,7 @@ def predict():
         "model_guess_word": result["model_guess_word"],
         "model_guess_confidence": round(result["model_guess_confidence"], 6),
         "used_target": result["used_target"],
+        "accepted": result["accepted"],
         "recording_path": str(recording_path),
         "user_agent": request.headers.get("User-Agent", ""),
     }

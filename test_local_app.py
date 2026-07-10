@@ -65,14 +65,13 @@ def main():
     for row in rows:
         by_word.setdefault(row["word"], []).append(row)
     sample_rows = [random.choice(items) for _, items in sorted(by_word.items())]
-    word_to_id = {word: idx for idx, word in enumerate(manifest["words"])}
     clean_free_ok = 0
     noisy_free_ok = 0
-    noisy_target_ok = 0
+    noisy_accepted = 0
+    noisy_accepted_correct = 0
 
     for row in sample_rows:
         audio = load_audio(row["path"])
-        target_id = word_to_id[row["word"]]
 
         clean_response = post_wav(client, audio)
         assert clean_response.status_code == 200, clean_response.data
@@ -84,11 +83,9 @@ def main():
         assert noisy_response.status_code == 200, noisy_response.data
         noisy = noisy_response.json
         noisy_free_ok += int(noisy["word"] == row["word"])
+        noisy_accepted += int(noisy.get("accepted") is True)
+        noisy_accepted_correct += int(noisy.get("accepted") is True and noisy["word"] == row["word"])
 
-        target_response = post_wav(client, noisy_audio, target_word_id=target_id)
-        assert target_response.status_code == 200, target_response.data
-        target = target_response.json
-        noisy_target_ok += int(target["word"] == row["word"] and target["used_target"] is True)
 
     quiet_response = post_wav(client, np.zeros(int(0.4 * SAMPLE_RATE), dtype=np.float32))
     assert quiet_response.status_code == 400
@@ -98,7 +95,7 @@ def main():
 
     print(f"free clean sample accuracy: {clean_free_ok}/{len(sample_rows)}")
     print(f"free noisy sample accuracy: {noisy_free_ok}/{len(sample_rows)}")
-    print(f"practice-target noisy correction: {noisy_target_ok}/{len(sample_rows)}")
+    print(f"noisy accepted correct: {noisy_accepted_correct}/{noisy_accepted}")
     print("health/reference/save/error checks passed")
 
 

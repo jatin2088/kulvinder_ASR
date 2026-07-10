@@ -8,7 +8,7 @@
     :root {
       color-scheme: light;
       --ink: #20242a;
-      --muted: #647084;
+      --muted: #667085;
       --line: #d9e0ea;
       --paper: #f8fafc;
       --panel: #ffffff;
@@ -16,83 +16,42 @@
       --accent-dark: #075a55;
       --record: #b3261e;
       --ready: #245f45;
+      --warn: #9a4b12;
     }
-
     * { box-sizing: border-box; }
-
     body {
       margin: 0;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: var(--paper);
       color: var(--ink);
     }
-
     main {
       width: min(760px, 100%);
-      margin: 0 auto;
       min-height: 100vh;
+      margin: 0 auto;
       padding: 14px;
       display: grid;
       gap: 12px;
       align-content: start;
     }
-
-    header {
-      padding: 8px 2px 2px;
-    }
-
     h1 {
-      margin: 0;
+      margin: 8px 2px 2px;
       font-size: clamp(25px, 7vw, 38px);
       font-weight: 850;
       letter-spacing: 0;
     }
-
     section {
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 14px;
     }
-
     .record-panel {
       display: grid;
       gap: 12px;
     }
-
-    .practice-card {
-      display: grid;
-      grid-template-columns: 48px 1fr 48px;
-      gap: 10px;
-      align-items: center;
-      text-align: center;
-    }
-
-    .practice-card button {
-      min-height: 48px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #eef4f5;
-      color: var(--ink);
-      font-size: 24px;
-      font-weight: 800;
-    }
-
-    .practice-word {
-      min-height: 82px;
-      display: grid;
-      place-items: center;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #f9fbfd;
-      color: var(--accent-dark);
-      font-size: clamp(42px, 16vw, 84px);
-      font-weight: 900;
-      line-height: 1;
-    }
-
     .speak-button {
-      min-height: 88px;
+      min-height: 92px;
       border: 0;
       border-radius: 8px;
       background: var(--ready);
@@ -102,23 +61,14 @@
       cursor: pointer;
       touch-action: manipulation;
     }
-
-    .speak-button.recording {
-      background: var(--record);
-    }
-
-    .speak-button:disabled {
-      opacity: 0.65;
-      cursor: wait;
-    }
-
-    .small-actions {
+    .speak-button.recording { background: var(--record); }
+    .speak-button:disabled { opacity: 0.65; cursor: wait; }
+    .actions {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 10px;
     }
-
-    .small-actions button {
+    .actions button {
       min-height: 48px;
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -127,7 +77,6 @@
       font-weight: 700;
       font-size: 15px;
     }
-
     .level {
       height: 16px;
       background: #e8edf4;
@@ -135,28 +84,24 @@
       overflow: hidden;
       border: 1px solid var(--line);
     }
-
     .level > div {
       height: 100%;
       width: 0%;
       background: linear-gradient(90deg, #0f7c80, #d28a18);
       transition: width 60ms linear;
     }
-
     .status {
       color: var(--muted);
       min-height: 22px;
       font-size: 15px;
     }
-
     .result {
-      min-height: 230px;
+      min-height: 250px;
       display: grid;
       place-items: center;
       text-align: center;
       gap: 10px;
     }
-
     .word {
       font-size: clamp(62px, 22vw, 124px);
       line-height: 1;
@@ -164,7 +109,11 @@
       color: var(--accent-dark);
       word-break: keep-all;
     }
-
+    .repeat {
+      color: var(--warn);
+      font-size: clamp(28px, 8vw, 48px);
+      font-weight: 850;
+    }
     .meta {
       display: flex;
       flex-wrap: wrap;
@@ -173,23 +122,13 @@
       color: var(--muted);
       font-size: 15px;
     }
-
     .pill {
       border: 1px solid var(--line);
       border-radius: 999px;
       padding: 6px 10px;
       background: #f5f8fb;
     }
-
-    audio {
-      width: min(100%, 430px);
-    }
-
-    .history {
-      display: grid;
-      gap: 8px;
-    }
-
+    audio { width: min(100%, 430px); }
     .history-row {
       display: grid;
       grid-template-columns: 1fr auto;
@@ -199,33 +138,22 @@
       border-top: 1px solid var(--line);
       font-size: 15px;
     }
-
-    .history-row:first-child {
-      border-top: 0;
-    }
-
+    .history-row:first-child { border-top: 0; }
     @media (max-width: 560px) {
       main { padding: 10px; }
       section { padding: 12px; }
-      .small-actions { grid-template-columns: 1fr; }
+      .actions { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
   <main>
-    <header>
-      <h1>Muharani Child Assistance</h1>
-    </header>
+    <h1>Muharani Child Assistance</h1>
 
     <section class="record-panel">
-      <div class="practice-card">
-        <button id="prevButton" aria-label="Previous word">&lt;</button>
-        <div id="practiceWord" class="practice-word">---</div>
-        <button id="nextButton" aria-label="Next word">&gt;</button>
-      </div>
       <button id="speakButton" class="speak-button">Start Speaking</button>
       <div class="level" aria-label="Microphone level"><div id="levelFill"></div></div>
-      <div class="small-actions">
+      <div class="actions">
         <button id="noiseButton">Calibrate Room Noise</button>
         <button id="replayButton">Replay Correct Sound</button>
       </div>
@@ -242,15 +170,11 @@
     </section>
 
     <section>
-      <div id="history" class="history"></div>
+      <div id="history"></div>
     </section>
   </main>
 
   <script>
-    const practiceWords = {{ words|tojson }};
-    const practiceWordEl = document.getElementById("practiceWord");
-    const prevButton = document.getElementById("prevButton");
-    const nextButton = document.getElementById("nextButton");
     const speakButton = document.getElementById("speakButton");
     const noiseButton = document.getElementById("noiseButton");
     const replayButton = document.getElementById("replayButton");
@@ -273,23 +197,9 @@
     let latestLevel = 0;
     let noiseFloor = 0.012;
     let calibration = null;
-    let lastResult = null;
-    let currentWordId = Number(localStorage.getItem("currentWordId") || "0");
+    let lastAccepted = null;
 
-    function updatePracticeWord() {
-      if (!practiceWords.length) return;
-      currentWordId = (currentWordId + practiceWords.length) % practiceWords.length;
-      localStorage.setItem("currentWordId", String(currentWordId));
-      practiceWordEl.textContent = practiceWords[currentWordId];
-      wordEl.textContent = practiceWords[currentWordId];
-      audioEl.src = `/reference/${currentWordId}`;
-      confidenceEl.textContent = "Confidence: --";
-      qualityEl.textContent = "Pronunciation: --";
-    }
-
-    function setStatus(text) {
-      statusEl.textContent = text;
-    }
+    function setStatus(text) { statusEl.textContent = text; }
 
     async function ensureMic() {
       if (audioContext && stream) return;
@@ -325,15 +235,10 @@
       const scale = Math.max(noiseFloor * 6, 0.02);
       levelFill.style.width = `${Math.min(100, latestLevel / scale * 100)}%`;
 
-      if (calibration) {
-        calibration.levels.push(latestLevel);
-      }
-
+      if (calibration) calibration.levels.push(latestLevel);
       if (recording) {
         chunks.push(copy);
-        if (performance.now() - startedAt > 5000) {
-          stopRecording();
-        }
+        if (performance.now() - startedAt > 5000) stopRecording();
       }
     }
 
@@ -386,7 +291,6 @@
       let pcm = downsample(samples, sourceRate, targetRate);
       const speechThreshold = Math.max(noiseFloor * 2.2, 0.008);
       pcm = trimEdges(pcm, speechThreshold);
-
       const buffer = new ArrayBuffer(44 + pcm.length * 2);
       const view = new DataView(buffer);
       writeString(view, 0, "RIFF");
@@ -402,7 +306,6 @@
       view.setUint16(34, 16, true);
       writeString(view, 36, "data");
       view.setUint32(40, pcm.length * 2, true);
-
       let offset = 44;
       for (let i = 0; i < pcm.length; i++, offset += 2) {
         const sample = Math.max(-1, Math.min(1, pcm[i]));
@@ -435,13 +338,12 @@
       speakButton.classList.remove("recording");
       setStatus("Processing recording...");
 
-      const samples = mergeChunks(chunks);
+      const encoded = encodeWav(mergeChunks(chunks), audioContext.sampleRate, 16000);
       chunks = [];
-      const encoded = encodeWav(samples, audioContext.sampleRate, 16000);
 
       if (encoded.duration < 0.25 || encoded.rms < 0.002) {
         resetButton();
-        setStatus("Recording was too short or quiet. Please speak closer and try again.");
+        showRepeat("Recording was too short or quiet. Please speak closer and try again.");
         return;
       }
 
@@ -451,13 +353,12 @@
         form.append("duration", encoded.duration.toFixed(4));
         form.append("rms", encoded.rms.toFixed(6));
         form.append("noise_floor", noiseFloor.toFixed(6));
-        form.append("target_word_id", String(currentWordId));
         const response = await fetch("/predict", { method: "POST", body: form });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "Prediction failed");
         showResult(result);
       } catch (error) {
-        setStatus(error.message);
+        showRepeat(error.message);
       } finally {
         resetButton();
       }
@@ -470,44 +371,47 @@
       speakButton.classList.remove("recording");
     }
 
+    function showRepeat(message) {
+      wordEl.textContent = "Please repeat";
+      wordEl.classList.add("repeat");
+      confidenceEl.textContent = "Confidence: --";
+      qualityEl.textContent = "Pronunciation: --";
+      setStatus(message);
+    }
+
     function showResult(result) {
-      lastResult = result;
+      if (!result.accepted) {
+        showRepeat("Low confidence. Please repeat the word clearly.");
+        addHistory("Repeat needed", `${(result.confidence * 100).toFixed(1)}%`);
+        return;
+      }
+
+      lastAccepted = result;
+      wordEl.classList.remove("repeat");
       wordEl.textContent = result.word;
-      confidenceEl.textContent = `System check: ${(result.quality_confidence * 100).toFixed(1)}%`;
+      confidenceEl.textContent = `Confidence: ${(result.confidence * 100).toFixed(1)}%`;
       qualityEl.textContent = `Pronunciation: ${result.quality_label}`;
       audioEl.src = `${result.reference_url}?t=${Date.now()}`;
       audioEl.play().catch(() => {});
       setStatus(`Saved test ${result.recording_id || ""}`.trim());
-
-      const row = document.createElement("div");
-      row.className = "history-row";
-      row.innerHTML = `<strong>${result.word}</strong><span>${result.quality_label}</span>`;
-      historyEl.prepend(row);
+      addHistory(result.word, `${(result.confidence * 100).toFixed(1)}%`);
     }
 
-    prevButton.addEventListener("click", () => {
-      if (recording || busy) return;
-      currentWordId -= 1;
-      updatePracticeWord();
-    });
-
-    nextButton.addEventListener("click", () => {
-      if (recording || busy) return;
-      currentWordId += 1;
-      updatePracticeWord();
-    });
+    function addHistory(label, value) {
+      const row = document.createElement("div");
+      row.className = "history-row";
+      row.innerHTML = `<strong>${label}</strong><span>${value}</span>`;
+      historyEl.prepend(row);
+    }
 
     speakButton.addEventListener("click", async () => {
       try {
         if (busy) return;
-        if (recording) {
-          await stopRecording();
-        } else {
-          await startRecording();
-        }
+        if (recording) await stopRecording();
+        else await startRecording();
       } catch (error) {
         resetButton();
-        setStatus(error.message);
+        showRepeat(error.message);
       }
     });
 
@@ -524,7 +428,7 @@
           if (levels.length) {
             const sorted = [...levels].sort((a, b) => a - b);
             noiseFloor = Math.max(0.006, sorted[Math.floor(sorted.length * 0.8)]);
-            setStatus(`Room noise calibrated.`);
+            setStatus("Room noise calibrated.");
           } else {
             setStatus("Could not calibrate room noise.");
           }
@@ -532,18 +436,16 @@
         }, 2000);
       } catch (error) {
         noiseButton.disabled = false;
-        setStatus(error.message);
+        showRepeat(error.message);
       }
     });
 
     replayButton.addEventListener("click", () => {
-      if (audioEl.src) {
+      if (lastAccepted && audioEl.src) {
         audioEl.currentTime = 0;
         audioEl.play().catch(() => {});
       }
     });
-
-    updatePracticeWord();
   </script>
 </body>
 </html>
