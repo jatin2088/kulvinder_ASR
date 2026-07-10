@@ -1,7 +1,6 @@
 import json
 import csv
 import time
-import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -165,6 +164,7 @@ def append_result(row):
                 "client_noise_floor",
                 "model_guess_word",
                 "model_guess_confidence",
+                "alternatives",
                 "accepted",
                 "model_kind",
                 "recording_path",
@@ -218,6 +218,7 @@ def predict():
             "client_noise_floor": request.form.get("noise_floor", ""),
             "model_guess_word": "",
             "model_guess_confidence": "",
+            "alternatives": "",
             "accepted": "",
             "model_kind": model_kind,
             "recording_path": str(recording_path),
@@ -242,6 +243,7 @@ def predict():
         "client_noise_floor": request.form.get("noise_floor", ""),
         "model_guess_word": result["model_guess_word"],
         "model_guess_confidence": round(result["model_guess_confidence"], 6),
+        "alternatives": json.dumps(result["alternatives"], ensure_ascii=False),
         "accepted": result["accepted"],
         "model_kind": result["model_kind"],
         "recording_path": str(recording_path),
@@ -249,6 +251,7 @@ def predict():
     }
     append_result(row)
     result["recording_id"] = recording_id
+    result["recording_url"] = f"/recordings/{recording_id}"
     return jsonify(result)
 
 
@@ -257,6 +260,16 @@ def results_csv():
     if not RESULTS_CSV.exists():
         return jsonify({"error": "no results saved yet"}), 404
     return send_file(RESULTS_CSV, mimetype="text/csv", as_attachment=True, download_name="results.csv")
+
+
+@app.get("/recordings/<recording_id>")
+def recording(recording_id):
+    if not recording_id.replace("-", "").isalnum():
+        return jsonify({"error": "bad recording id"}), 404
+    matches = sorted(RECORDINGS_DIR.glob(f"*_{recording_id}.wav"))
+    if not matches:
+        return jsonify({"error": "recording not found"}), 404
+    return send_file(matches[-1], mimetype="audio/wav", as_attachment=True, download_name=f"{recording_id}.wav")
 
 
 @app.get("/reference/<int:word_id>")

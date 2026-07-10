@@ -44,6 +44,16 @@ http://127.0.0.1:5000
 
 The web app records audio in the browser/mobile device and sends a short WAV to the server for prediction.
 
+Useful test/export URLs:
+
+```text
+/health
+/results.csv
+/recordings/<recording_id>
+```
+
+`/health` should report `model: mlp_numpy`. `/results.csv` contains every test result, including top alternatives and the saved recording ID. Use `/recordings/<recording_id>` to download the exact WAV that the phone sent.
+
 ## Deploy To Render
 
 Push this folder to GitHub, then create a new Render Web Service from the repo.
