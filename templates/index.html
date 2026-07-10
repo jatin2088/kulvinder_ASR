@@ -65,7 +65,7 @@
     .speak-button:disabled { opacity: 0.65; cursor: wait; }
     .actions {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr 1fr 1fr;
       gap: 10px;
     }
     .actions button {
@@ -182,6 +182,7 @@
       <div class="actions">
         <button id="noiseButton">Calibrate Room Noise</button>
         <button id="replayButton">Replay Correct Sound</button>
+        <button id="calibrationButton">Child Calibration</button>
       </div>
       <div id="status" class="status">Tap Start Speaking, say one word, then tap Stop & Correct.</div>
     </section>
@@ -209,6 +210,7 @@
     const speakButton = document.getElementById("speakButton");
     const noiseButton = document.getElementById("noiseButton");
     const replayButton = document.getElementById("replayButton");
+    const calibrationButton = document.getElementById("calibrationButton");
     const levelFill = document.getElementById("levelFill");
     const statusEl = document.getElementById("status");
     const wordEl = document.getElementById("word");
@@ -477,6 +479,10 @@
         audioEl.currentTime = 0;
         audioEl.play().catch(() => {});
       }
+    });
+
+    calibrationButton.addEventListener("click", () => {
+      window.location.href = "/calibrate";
     });
 
     saveFeedbackButton.addEventListener("click", async () => {

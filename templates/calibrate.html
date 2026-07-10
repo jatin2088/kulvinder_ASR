@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Muharani Calibration</title>
+  <style>
+    :root {
+      --ink: #20242a;
+      --muted: #667085;
+      --line: #d9e0ea;
+      --paper: #f8fafc;
+      --panel: #ffffff;
+      --accent: #075a55;
+      --record: #b3261e;
+      --ready: #245f45;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--paper);
+      color: var(--ink);
+    }
+    main {
+      width: min(760px, 100%);
+      margin: 0 auto;
+      min-height: 100vh;
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+    h1 {
+      margin: 8px 2px 2px;
+      font-size: clamp(24px, 7vw, 36px);
+      font-weight: 850;
+    }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+    .word {
+      min-height: 100px;
+      display: grid;
+      place-items: center;
+      color: var(--accent);
+      font-size: clamp(62px, 22vw, 128px);
+      font-weight: 900;
+      line-height: 1;
+    }
+    .nav {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    button, select {
+      min-height: 52px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      font-size: 16px;
+      padding: 0 12px;
+    }
+    button {
+      background: #eef4f5;
+      color: var(--ink);
+      font-weight: 750;
+    }
+    .record {
+      min-height: 86px;
+      border: 0;
+      background: var(--ready);
+      color: #fff;
+      font-size: clamp(22px, 7vw, 32px);
+      font-weight: 850;
+    }
+    .record.recording { background: var(--record); }
+    .status { color: var(--muted); min-height: 24px; }
+    .level {
+      height: 16px;
+      background: #e8edf4;
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+    }
+    .level > div {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #0f7c80, #d28a18);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Calibration</h1>
+    <section>
+      <select id="wordSelect"></select>
+      <div id="word" class="word"></div>
+      <button id="recordButton" class="record">Record Sample</button>
+      <div class="level"><div id="levelFill"></div></div>
+      <div class="nav">
+        <button id="prevButton">Previous</button>
+        <button id="nextButton">Next</button>
+      </div>
+      <div id="status" class="status">Record 3 to 5 clear samples for each word.</div>
+    </section>
+  </main>
+
+  <script>
+    const words = {{ words|tojson }};
+    const wordSelect = document.getElementById("wordSelect");
+    const wordEl = document.getElementById("word");
+    const recordButton = document.getElementById("recordButton");
+    const prevButton = document.getElementById("prevButton");
+    const nextButton = document.getElementById("nextButton");
+    const statusEl = document.getElementById("status");
+    const levelFill = document.getElementById("levelFill");
+
+    let wordId = Number(localStorage.getItem("calibrationWordId") || "0");
+    let audioContext = null;
+    let stream = null;
+    let source = null;
+    let processor = null;
+    let chunks = [];
+    let recording = false;
+    let busy = false;
+    let startedAt = 0;
+
+    words.forEach((word, index) => {
+      const option = document.createElement("option");
+      option.value = String(index);
+      option.textContent = `${index + 1}. ${word}`;
+      wordSelect.appendChild(option);
+    });
+
+    function setStatus(text) { statusEl.textContent = text; }
+
+    function updateWord() {
+      wordId = (wordId + words.length) % words.length;
+      localStorage.setItem("calibrationWordId", String(wordId));
+      wordSelect.value = String(wordId);
+      wordEl.textContent = words[wordId];
+    }
+
+    async function ensureMic() {
+      if (audioContext && stream) return;
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 }
+      });
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      source = audioContext.createMediaStreamSource(stream);
+      processor = audioContext.createScriptProcessor(2048, 1, 1);
+      processor.onaudioprocess = onAudioProcess;
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+    }
+
+    function rms(samples) {
+      let sum = 0;
+      for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+      return Math.sqrt(sum / Math.max(1, samples.length));
+    }
+
+    function onAudioProcess(event) {
+      const copy = new Float32Array(event.inputBuffer.getChannelData(0));
+      levelFill.style.width = `${Math.min(100, rms(copy) / 0.08 * 100)}%`;
+      if (recording) {
+        chunks.push(copy);
+        if (performance.now() - startedAt > 4500) stopRecording();
+      }
+    }
+
+    function mergeChunks(parts) {
+      const total = parts.reduce((sum, part) => sum + part.length, 0);
+      const merged = new Float32Array(total);
+      let offset = 0;
+      for (const part of parts) {
+        merged.set(part, offset);
+        offset += part.length;
+      }
+      return merged;
+    }
+
+    function downsample(buffer, sourceRate, targetRate) {
+      if (sourceRate === targetRate) return buffer;
+      const ratio = sourceRate / targetRate;
+      const length = Math.max(1, Math.round(buffer.length / ratio));
+      const result = new Float32Array(length);
+      for (let i = 0; i < length; i++) {
+        const start = Math.floor(i * ratio);
+        const end = Math.min(buffer.length, Math.floor((i + 1) * ratio));
+        let sum = 0;
+        for (let j = start; j < end; j++) sum += buffer[j];
+        result[i] = sum / Math.max(1, end - start);
+      }
+      return result;
+    }
+
+    function encodeWav(samples, sourceRate, targetRate) {
+      const pcm = downsample(samples, sourceRate, targetRate);
+      const buffer = new ArrayBuffer(44 + pcm.length * 2);
+      const view = new DataView(buffer);
+      writeString(view, 0, "RIFF");
+      view.setUint32(4, 36 + pcm.length * 2, true);
+      writeString(view, 8, "WAVE");
+      writeString(view, 12, "fmt ");
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, targetRate, true);
+      view.setUint32(28, targetRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeString(view, 36, "data");
+      view.setUint32(40, pcm.length * 2, true);
+      let offset = 44;
+      for (let i = 0; i < pcm.length; i++, offset += 2) {
+        const sample = Math.max(-1, Math.min(1, pcm[i]));
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      }
+      return new Blob([view], { type: "audio/wav" });
+    }
+
+    function writeString(view, offset, text) {
+      for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
+    }
+
+    async function startRecording() {
+      await ensureMic();
+      await audioContext.resume();
+      chunks = [];
+      recording = true;
+      startedAt = performance.now();
+      recordButton.textContent = "Stop & Save";
+      recordButton.classList.add("recording");
+      setStatus(`Recording ${words[wordId]}...`);
+    }
+
+    async function stopRecording() {
+      if (!recording || busy) return;
+      recording = false;
+      busy = true;
+      recordButton.disabled = true;
+      recordButton.textContent = "Saving...";
+      recordButton.classList.remove("recording");
+      try {
+        const blob = encodeWav(mergeChunks(chunks), audioContext.sampleRate, 16000);
+        const form = new FormData();
+        form.append("audio", blob, "sample.wav");
+        form.append("word_id", String(wordId));
+        const response = await fetch("/enroll", { method: "POST", body: form });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Could not save sample");
+        setStatus(`Saved ${result.word}. Total calibration samples: ${result.feedback_samples}`);
+      } catch (error) {
+        setStatus(error.message);
+      } finally {
+        busy = false;
+        recordButton.disabled = false;
+        recordButton.textContent = "Record Sample";
+      }
+    }
+
+    recordButton.addEventListener("click", async () => {
+      if (busy) return;
+      if (recording) await stopRecording();
+      else await startRecording();
+    });
+    wordSelect.addEventListener("change", () => {
+      wordId = Number(wordSelect.value);
+      updateWord();
+    });
+    prevButton.addEventListener("click", () => { wordId -= 1; updateWord(); });
+    nextButton.addEventListener("click", () => { wordId += 1; updateWord(); });
+    updateWord();
+  </script>
+</body>
+</html>

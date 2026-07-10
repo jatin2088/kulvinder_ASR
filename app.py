@@ -230,6 +230,11 @@ def index():
     return render_template("index.html", words=words)
 
 
+@app.get("/calibrate")
+def calibrate():
+    return render_template("calibrate.html", words=words)
+
+
 @app.get("/health")
 def health():
     feedback_vectors, _ = feedback_samples()
@@ -240,6 +245,60 @@ def health():
 @app.get("/words")
 def word_list():
     return jsonify([{"word_id": idx, "word": word} for idx, word in enumerate(words)])
+
+
+def save_feedback_vector(recording_id, word_id, recording_path):
+    audio = load_audio(recording_path)
+    vector = sklearn_feature_vector_from_logmel(log_mel_features(audio)).reshape(-1).astype(np.float32)
+    vector_path = FEEDBACK_VECTOR_DIR / f"{recording_id}_{word_id}.npz"
+    np.savez_compressed(vector_path, vector=vector, word_id=np.asarray([word_id], dtype=np.int64))
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    write_header = not FEEDBACK_CSV.exists()
+    with FEEDBACK_CSV.open("a", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["created_at", "recording_id", "word_id", "word", "recording_path", "vector_path"])
+        if write_header:
+            writer.writeheader()
+        writer.writerow(
+            {
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "recording_id": recording_id,
+                "word_id": word_id,
+                "word": words[word_id],
+                "recording_path": str(recording_path),
+                "vector_path": str(vector_path),
+            }
+        )
+    return vector_path
+
+
+@app.post("/enroll")
+def enroll():
+    if "audio" not in request.files:
+        return jsonify({"error": "missing audio file"}), 400
+    word_id_raw = str(request.form.get("word_id", "")).strip()
+    if not word_id_raw.isdigit():
+        return jsonify({"error": "word_id is required"}), 400
+    word_id = int(word_id_raw)
+    if word_id < 0 or word_id >= len(words):
+        return jsonify({"error": "bad word id"}), 400
+
+    recording_id = uuid.uuid4().hex
+    recording_path = RECORDINGS_DIR / f"{int(time.time())}_{recording_id}.wav"
+    request.files["audio"].save(recording_path)
+
+    try:
+        audio = load_audio(recording_path)
+        stats = audio_stats(audio)
+        if stats["duration"] < 0.20 or stats["rms"] < 0.001:
+            return jsonify({"error": "Recording is too short or too quiet."}), 400
+        save_feedback_vector(recording_id, word_id, recording_path)
+    except Exception as exc:
+        return jsonify({"error": str(exc), "recording_id": recording_id}), 400
+
+    feedback_vectors, _ = feedback_samples()
+    feedback_count = 0 if feedback_vectors is None else int(len(feedback_vectors))
+    return jsonify({"ok": True, "recording_id": recording_id, "word_id": word_id, "word": words[word_id], "feedback_samples": feedback_count})
 
 
 @app.post("/predict")
@@ -343,27 +402,7 @@ def feedback():
     if recording_path is None:
         return jsonify({"error": "recording not found"}), 404
 
-    audio = load_audio(recording_path)
-    vector = sklearn_feature_vector_from_logmel(log_mel_features(audio)).reshape(-1).astype(np.float32)
-    vector_path = FEEDBACK_VECTOR_DIR / f"{recording_id}_{word_id}.npz"
-    np.savez_compressed(vector_path, vector=vector, word_id=np.asarray([word_id], dtype=np.int64))
-
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    write_header = not FEEDBACK_CSV.exists()
-    with FEEDBACK_CSV.open("a", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["created_at", "recording_id", "word_id", "word", "recording_path", "vector_path"])
-        if write_header:
-            writer.writeheader()
-        writer.writerow(
-            {
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "recording_id": recording_id,
-                "word_id": word_id,
-                "word": words[word_id],
-                "recording_path": str(recording_path),
-                "vector_path": str(vector_path),
-            }
-        )
+    save_feedback_vector(recording_id, word_id, recording_path)
 
     return jsonify({"ok": True, "recording_id": recording_id, "word_id": word_id, "word": words[word_id]})
 

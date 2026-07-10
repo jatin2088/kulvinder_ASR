@@ -56,6 +56,16 @@ Useful test/export URLs:
 
 If a prediction is wrong, choose the correct word in the feedback control after the result and click **Save Correct Label**. Those labeled phone recordings are used immediately by the server as calibration examples for future predictions.
 
+## Real Deployment Plan
+
+For this closed 50-word app, use child-specific calibration instead of relying only on the generic trained classifier:
+
+1. Open `/calibrate`.
+2. Record 3-5 samples for each word using the same child and phone.
+3. Return to `/` for free-speak detection.
+
+The runtime screen still does not show a word before speaking. Calibration is an admin/teacher setup step that gives the matcher real examples from the target child/phone.
+
 ## Deploy To Render
 
 Push this folder to GitHub, then create a new Render Web Service from the repo.

@@ -15,3 +15,6 @@ models/word_correction_model.pt
 models/mlp_word_model.pt
 models/cnn_word_model.pt
 models/cnn_training_summary.json
+models/template_features_cache.npz
+models/template_matcher.npz
+models/template_training_summary.json
