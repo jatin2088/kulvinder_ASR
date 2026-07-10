@@ -47,6 +47,8 @@ def add_noise(audio, snr_db=12.0):
 
 
 def main():
+    # Keep the smoke test deterministic even if local calibration files exist.
+    web.feedback_samples = lambda: (None, None)
     client = web.app.test_client()
     health = client.get("/health")
     assert health.status_code == 200, health.data

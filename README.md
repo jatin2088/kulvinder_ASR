@@ -52,19 +52,21 @@ Useful test/export URLs:
 /recordings/<recording_id>
 ```
 
-`/health` should report `model: mlp_numpy`. `/results.csv` contains every test result, including top alternatives and the saved recording ID. Use `/recordings/<recording_id>` to download the exact WAV that the phone sent.
+`/health` should report `model: sklearn` by default. `/results.csv` contains every test result, including top alternatives and the saved recording ID. Use `/recordings/<recording_id>` to download the exact WAV that the phone sent.
 
 If a prediction is wrong, choose the correct word in the feedback control after the result and click **Save Correct Label**. Those labeled phone recordings are used immediately by the server as calibration examples for future predictions.
 
 ## Real Deployment Plan
 
-For this closed 50-word app, use child-specific calibration instead of relying only on the generic trained classifier:
+The runtime screen is free-speak: the child presses **Start Speaking**, says any one of the 50 words, presses **Stop & Correct**, and the app displays and plays the corrected Punjabi word.
+
+For a child/phone that keeps failing in a noisy room, add optional child-specific calibration:
 
 1. Open `/calibrate`.
 2. Record 3-5 samples for each word using the same child and phone.
 3. Return to `/` for free-speak detection.
 
-The runtime screen still does not show a word before speaking. Calibration is an admin/teacher setup step that gives the matcher real examples from the target child/phone.
+Calibration is an admin/teacher setup step. It is not shown before each normal runtime test.
 
 Calibration requires persistent storage on Render. The Blueprint includes a disk mounted at `/opt/render/project/src/data`; if Render rejects the disk on the free plan, upgrade the service plan or add the disk manually from the Render dashboard.
 
@@ -83,7 +85,9 @@ No secret key is required. Mobile microphone recording needs HTTPS; Render provi
 
 Current trained model:
 
-- Validation word accuracy: `65.5%`
+- Default runtime word model: `sklearn` SVM/PCA closed-vocabulary recognizer
+- Optional neural model: set `WORD_MODEL_KIND=mlp`
+- Validation word accuracy during sklearn training: `67.3%`
 - Validation `D`/`N` pronunciation quality accuracy: `94.9%`
 - Broken WAV files skipped: `6`
 

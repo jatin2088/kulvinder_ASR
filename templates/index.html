@@ -266,9 +266,9 @@
         const response = await fetch("/health", { cache: "no-store" });
         const health = await response.json();
         feedbackSamples = Number(health.feedback_samples || 0);
-        if (feedbackSamples < 150) {
+        if (feedbackSamples > 0 && feedbackSamples < 150) {
           setupWarning.classList.add("visible");
-          setupWarning.textContent = `Calibration required: ${feedbackSamples} samples saved. Open Child Calibration and record at least 3 samples for each word.`;
+          setupWarning.textContent = `Child calibration: ${feedbackSamples} samples saved. Add more only if this child or phone keeps failing.`;
         } else {
           setupWarning.classList.remove("visible");
         }
@@ -375,11 +375,6 @@
     }
 
     async function startRecording() {
-      if (feedbackSamples < 150) {
-        setStatus("Please complete Child Calibration first.");
-        window.location.href = "/calibrate";
-        return;
-      }
       await ensureMic();
       await audioContext.resume();
       chunks = [];

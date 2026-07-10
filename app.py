@@ -1,5 +1,6 @@
 import json
 import csv
+import os
 import time
 import uuid
 from datetime import datetime, timezone
@@ -28,14 +29,17 @@ app = Flask(__name__)
 artifact = joblib.load(MODEL_PATH)
 quality_model = artifact.get("quality_model")
 references = artifact.get("references", {})
-if MLP_MODEL_PATH.exists():
+PREFERRED_WORD_MODEL = os.getenv("WORD_MODEL_KIND", "sklearn").strip().lower()
+MIN_ACCEPT_CONFIDENCE = float(os.getenv("MIN_ACCEPT_CONFIDENCE", "0.60"))
+MLP_FALLBACK_BELOW = float(os.getenv("MLP_FALLBACK_BELOW", "0.60"))
+mlp_model = np.load(MLP_MODEL_PATH, allow_pickle=True) if MLP_MODEL_PATH.exists() else None
+
+if PREFERRED_WORD_MODEL == "mlp" and mlp_model is not None:
     model_kind = "mlp_numpy"
-    mlp_model = np.load(MLP_MODEL_PATH, allow_pickle=True)
     word_model = None
     words = mlp_model["words"].tolist()
 else:
     model_kind = "sklearn"
-    mlp_model = None
     word_model = artifact["word_model"]
     words = artifact["words"]
 
@@ -91,7 +95,13 @@ def word_probabilities(vector):
         scores = np.stack([-scores, scores], axis=1)
     scores = scores - scores.max(axis=1, keepdims=True)
     probs = np.exp(scores)
-    return probs / probs.sum(axis=1, keepdims=True)
+    probs = probs / probs.sum(axis=1, keepdims=True)
+    if mlp_model is not None and MLP_FALLBACK_BELOW > 0:
+        low_confidence = probs.max(axis=1) < MLP_FALLBACK_BELOW
+        if np.any(low_confidence):
+            mlp_probs = mlp_probabilities(vector)
+            probs[low_confidence] = mlp_probs[low_confidence]
+    return probs
 
 
 def feedback_samples():
@@ -116,22 +126,24 @@ def apply_feedback_probs(base_probs, vector):
     if feedback_vectors is None:
         return base_probs, 0
 
+    sample_count = len(labels)
     query = vector.reshape(-1).astype(np.float32)
     query_norm = query / (np.linalg.norm(query) + 1e-6)
     sample_norms = feedback_vectors / (np.linalg.norm(feedback_vectors, axis=1, keepdims=True) + 1e-6)
     sims = np.matmul(sample_norms, query_norm)
     best = float(np.max(sims))
-    if best < 0.55:
-        return base_probs, len(labels)
+    required_best = 0.88 if sample_count < 25 else 0.72 if sample_count < 100 else 0.62
+    if best < required_best:
+        return base_probs, sample_count
 
     feedback_probs = np.zeros_like(base_probs)
-    top = np.argsort(sims)[-7:]
+    top = np.argsort(sims)[-min(7, sample_count):]
     weights = np.exp((sims[top] - sims[top].max()) * 12.0)
     for idx, weight in zip(top, weights):
         feedback_probs[0, labels[idx]] += weight
     feedback_probs = feedback_probs / max(float(feedback_probs.sum()), 1e-6)
 
-    blend = 0.78 if best >= 0.72 else 0.55
+    blend = 0.78 if best >= 0.88 else 0.55
     return (1.0 - blend) * base_probs + blend * feedback_probs, len(labels)
 
 
@@ -168,7 +180,7 @@ def predict_wav(path):
     quality_id = int(quality_model.predict(vector)[0]) if quality_model is not None else 1
 
     confidence = alternatives[0]["confidence"]
-    accepted = bool(confidence >= 0.20)
+    accepted = bool(confidence >= MIN_ACCEPT_CONFIDENCE)
     return {
         "word_id": word_id,
         "word": words[word_id],
@@ -180,6 +192,7 @@ def predict_wav(path):
         "model_guess_confidence": confidence,
         "model_kind": model_kind,
         "feedback_samples": feedback_count,
+        "min_accept_confidence": MIN_ACCEPT_CONFIDENCE,
         "quality": "normal" if quality_id == 1 else "incorrect",
         "quality_label": "Normal / correct" if quality_id == 1 else "Incorrect / needs practice",
         "quality_confidence": estimate_confidence(quality_model, vector) if quality_model is not None else 0.0,
@@ -239,7 +252,17 @@ def calibrate():
 def health():
     feedback_vectors, _ = feedback_samples()
     feedback_count = 0 if feedback_vectors is None else int(len(feedback_vectors))
-    return jsonify({"ok": True, "words": len(words), "model": model_kind, "feedback_samples": feedback_count})
+    return jsonify(
+        {
+            "ok": True,
+            "words": len(words),
+            "model": model_kind,
+            "preferred_model": PREFERRED_WORD_MODEL,
+            "feedback_samples": feedback_count,
+            "min_accept_confidence": MIN_ACCEPT_CONFIDENCE,
+            "mlp_fallback_below": MLP_FALLBACK_BELOW if mlp_model is not None else 0.0,
+        }
+    )
 
 
 @app.get("/words")
