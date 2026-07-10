@@ -251,6 +251,8 @@
     let lastAccepted = null;
     let lastResult = null;
     let feedbackSamples = 0;
+    let voiceMapComplete = false;
+    let voiceMapRequired = 150;
 
     words.forEach((word, index) => {
       const option = document.createElement("option");
@@ -266,11 +268,16 @@
         const response = await fetch("/health", { cache: "no-store" });
         const health = await response.json();
         feedbackSamples = Number(health.feedback_samples || 0);
-        if (feedbackSamples > 0 && feedbackSamples < 150) {
+        const voiceMap = health.voice_map || {};
+        voiceMapComplete = Boolean(voiceMap.complete);
+        voiceMapRequired = Number(voiceMap.required_total || 150);
+        if (!voiceMapComplete) {
           setupWarning.classList.add("visible");
-          setupWarning.textContent = `Child calibration: ${feedbackSamples} samples saved. Add more only if this child or phone keeps failing.`;
+          setupWarning.textContent = `Voice map required: ${feedbackSamples}/${voiceMapRequired} samples saved. Open Child Calibration first.`;
+          speakButton.textContent = "Open Calibration";
         } else {
           setupWarning.classList.remove("visible");
+          if (!recording && !busy) speakButton.textContent = "Start Speaking";
         }
       } catch {
         setupWarning.classList.add("visible");
@@ -315,7 +322,7 @@
       if (calibration) calibration.levels.push(latestLevel);
       if (recording) {
         chunks.push(copy);
-        if (performance.now() - startedAt > 5000) stopRecording();
+        if (performance.now() - startedAt > 2500) stopRecording();
       }
     }
 
@@ -375,6 +382,10 @@
     }
 
     async function startRecording() {
+      if (!voiceMapComplete) {
+        window.location.href = "/calibrate";
+        return;
+      }
       await ensureMic();
       await audioContext.resume();
       chunks = [];
@@ -440,7 +451,7 @@
     function showResult(result) {
       if (!result.accepted) {
         lastResult = result;
-        showRepeat("Low confidence. Please repeat the word clearly.");
+        showRepeat("Not clear enough. Please repeat the word once.");
         addHistory("Repeat needed", `${(result.confidence * 100).toFixed(1)}%`);
         return;
       }
@@ -450,7 +461,7 @@
       wordEl.classList.remove("repeat");
       wordEl.textContent = result.word;
       confidenceEl.textContent = `Confidence: ${(result.confidence * 100).toFixed(1)}%`;
-      qualityEl.textContent = `Pronunciation: ${result.quality_label}`;
+      qualityEl.textContent = `Recognizer: ${result.recognizer || "voice_map"}`;
       alternativesEl.textContent = (result.alternatives || [])
         .map((item, index) => `${index + 1}. ${item.word} ${(item.confidence * 100).toFixed(1)}%`)
         .join("   ");

@@ -58,15 +58,15 @@ If a prediction is wrong, choose the correct word in the feedback control after 
 
 ## Real Deployment Plan
 
-The runtime screen is free-speak: the child presses **Start Speaking**, says any one of the 50 words, presses **Stop & Correct**, and the app displays and plays the corrected Punjabi word.
+The runtime screen is free-speak after setup: the child presses **Start Speaking**, says any one of the 50 words, presses **Stop & Correct**, and the app displays and plays the corrected Punjabi word.
 
-For a child/phone that keeps failing in a noisy room, add optional child-specific calibration:
+Child-specific voice mapping is mandatory for reliable mobile use:
 
 1. Open `/calibrate`.
-2. Record 3-5 samples for each word using the same child and phone.
+2. Record at least 3 clear samples for each word using the same child and phone.
 3. Return to `/` for free-speak detection.
 
-Calibration is an admin/teacher setup step. It is not shown before each normal runtime test.
+The app blocks generic live predictions until the voice map is complete. Calibration is an admin/teacher setup step; the normal runtime screen still does not show a target word before speaking.
 
 Calibration requires persistent storage on Render. The Blueprint includes a disk mounted at `/opt/render/project/src/data`; if Render rejects the disk on the free plan, upgrade the service plan or add the disk manually from the Render dashboard.
 
@@ -87,6 +87,7 @@ Current trained model:
 
 - Default runtime word model: `sklearn` SVM/PCA closed-vocabulary recognizer
 - Optional neural model: set `WORD_MODEL_KIND=mlp`
+- Production live mode: `VOICE_MAP_ONLY=1`, requiring child/phone mapping before prediction
 - Validation word accuracy during sklearn training: `67.3%`
 - Validation `D`/`N` pronunciation quality accuracy: `94.9%`
 - Broken WAV files skipped: `6`

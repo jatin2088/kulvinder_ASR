@@ -32,6 +32,11 @@ references = artifact.get("references", {})
 PREFERRED_WORD_MODEL = os.getenv("WORD_MODEL_KIND", "sklearn").strip().lower()
 MIN_ACCEPT_CONFIDENCE = float(os.getenv("MIN_ACCEPT_CONFIDENCE", "0.60"))
 MLP_FALLBACK_BELOW = float(os.getenv("MLP_FALLBACK_BELOW", "0.60"))
+REQUIRED_SAMPLES_PER_WORD = int(os.getenv("REQUIRED_SAMPLES_PER_WORD", "3"))
+VOICE_MAP_ONLY = os.getenv("VOICE_MAP_ONLY", "1").strip().lower() not in {"0", "false", "no"}
+VOICE_MAP_MIN_CONFIDENCE = float(os.getenv("VOICE_MAP_MIN_CONFIDENCE", "0.42"))
+VOICE_MAP_MIN_MARGIN = float(os.getenv("VOICE_MAP_MIN_MARGIN", "0.08"))
+MAX_WORD_SECONDS = float(os.getenv("MAX_WORD_SECONDS", "1.35"))
 mlp_model = np.load(MLP_MODEL_PATH, allow_pickle=True) if MLP_MODEL_PATH.exists() else None
 
 if PREFERRED_WORD_MODEL == "mlp" and mlp_model is not None:
@@ -121,38 +126,128 @@ def feedback_samples():
     return np.stack(vectors), np.asarray(labels, dtype=np.int64)
 
 
+def extract_word_audio(audio):
+    audio = np.asarray(audio, dtype=np.float32)
+    if audio.size <= int((MAX_WORD_SECONDS + 0.25) * SAMPLE_RATE):
+        return audio
+
+    frame = int(0.025 * SAMPLE_RATE)
+    hop = int(0.010 * SAMPLE_RATE)
+    energies = []
+    for start in range(0, max(1, audio.size - frame + 1), hop):
+        chunk = audio[start : start + frame]
+        energies.append(float(np.sqrt(np.mean(chunk * chunk) + 1e-12)))
+    if not energies:
+        return audio[: int(MAX_WORD_SECONDS * SAMPLE_RATE)]
+
+    energies = np.asarray(energies, dtype=np.float32)
+    if energies.size >= 7:
+        energies = np.convolve(energies, np.ones(7, dtype=np.float32) / 7.0, mode="same")
+    floor = float(np.percentile(energies, 30))
+    speech = np.maximum(energies - floor, 0.0)
+    peak_idx = int(np.argmax(speech))
+    peak_center = int(peak_idx * hop + frame // 2)
+    window = int(MAX_WORD_SECONDS * SAMPLE_RATE)
+    start = max(0, min(audio.size - window, peak_center - window // 2))
+    return audio[start : start + window]
+
+
+def feature_vector_from_audio(audio):
+    speech = extract_word_audio(audio)
+    return sklearn_feature_vector_from_logmel(log_mel_features(speech)).reshape(1, -1), speech
+
+
+def voice_map_status():
+    _, labels = feedback_samples()
+    counts = np.zeros((len(words),), dtype=np.int64)
+    if labels is not None:
+        counts = np.bincount(labels, minlength=len(words)).astype(np.int64)
+    missing = [
+        {"word_id": idx, "word": words[idx], "count": int(count)}
+        for idx, count in enumerate(counts)
+        if int(count) < REQUIRED_SAMPLES_PER_WORD
+    ]
+    complete = len(missing) == 0
+    return {
+        "complete": complete,
+        "required_per_word": REQUIRED_SAMPLES_PER_WORD,
+        "total_samples": int(counts.sum()),
+        "required_total": int(REQUIRED_SAMPLES_PER_WORD * len(words)),
+        "complete_words": int(np.sum(counts >= REQUIRED_SAMPLES_PER_WORD)),
+        "words": [{"word_id": idx, "word": words[idx], "count": int(count)} for idx, count in enumerate(counts)],
+        "missing": missing,
+    }
+
+
+def word_embedding(vectors):
+    vectors = np.asarray(vectors, dtype=np.float32)
+    if vectors.ndim == 1:
+        vectors = vectors.reshape(1, -1)
+    if model_kind == "sklearn" and word_model is not None and hasattr(word_model, "steps"):
+        return word_model[:-1].transform(vectors).astype(np.float32)
+    return vectors.astype(np.float32)
+
+
+def voice_map_probabilities(vector):
+    feedback_vectors, labels = feedback_samples()
+    if feedback_vectors is None:
+        return None, 0, {"best_similarity": 0.0, "margin": 0.0}
+
+    sample_count = len(labels)
+    query = word_embedding(vector)
+    bank = word_embedding(feedback_vectors)
+    query_norm = query[0] / (np.linalg.norm(query[0]) + 1e-6)
+    sample_norms = bank / (np.linalg.norm(bank, axis=1, keepdims=True) + 1e-6)
+    sims = np.matmul(sample_norms, query_norm)
+    best = float(np.max(sims)) if sims.size else 0.0
+
+    class_scores = np.zeros((len(words),), dtype=np.float64)
+    top = np.argsort(sims)[-min(15, sample_count):]
+    weights = np.exp((sims[top] - sims[top].max()) * 18.0)
+    for idx, weight in zip(top, weights):
+        class_scores[labels[idx]] += float(weight)
+
+    for word_id in np.unique(labels):
+        class_bank = sample_norms[labels == word_id]
+        centroid = class_bank.mean(axis=0)
+        centroid = centroid / (np.linalg.norm(centroid) + 1e-6)
+        centroid_sim = float(np.dot(centroid, query_norm))
+        class_scores[int(word_id)] += float(np.exp((centroid_sim - best) * 10.0)) * 0.35
+
+    probs = class_scores / max(float(class_scores.sum()), 1e-9)
+    order = np.argsort(probs)[::-1]
+    top_conf = float(probs[order[0]]) if order.size else 0.0
+    second_conf = float(probs[order[1]]) if order.size > 1 else 0.0
+    meta = {"best_similarity": best, "margin": top_conf - second_conf}
+    return probs.reshape(1, -1), sample_count, meta
+
+
 def apply_feedback_probs(base_probs, vector):
     feedback_vectors, labels = feedback_samples()
     if feedback_vectors is None:
-        return base_probs, 0
+        return base_probs, 0, "generic", {"best_similarity": 0.0, "margin": 0.0}
 
-    sample_count = len(labels)
-    query = vector.reshape(-1).astype(np.float32)
-    query_norm = query / (np.linalg.norm(query) + 1e-6)
-    sample_norms = feedback_vectors / (np.linalg.norm(feedback_vectors, axis=1, keepdims=True) + 1e-6)
-    sims = np.matmul(sample_norms, query_norm)
-    best = float(np.max(sims))
+    map_probs, sample_count, meta = voice_map_probabilities(vector)
+    status = voice_map_status()
+    if status["complete"]:
+        return map_probs, sample_count, "voice_map", meta
+
     required_best = 0.88 if sample_count < 25 else 0.72 if sample_count < 100 else 0.62
-    if best < required_best:
-        return base_probs, sample_count
+    if meta["best_similarity"] < required_best:
+        return base_probs, sample_count, "generic", meta
 
-    feedback_probs = np.zeros_like(base_probs)
-    top = np.argsort(sims)[-min(7, sample_count):]
-    weights = np.exp((sims[top] - sims[top].max()) * 12.0)
-    for idx, weight in zip(top, weights):
-        feedback_probs[0, labels[idx]] += weight
-    feedback_probs = feedback_probs / max(float(feedback_probs.sum()), 1e-6)
-
-    blend = 0.78 if best >= 0.88 else 0.55
-    return (1.0 - blend) * base_probs + blend * feedback_probs, len(labels)
+    blend = 0.78 if meta["best_similarity"] >= 0.88 else 0.55
+    return (1.0 - blend) * base_probs + blend * map_probs, sample_count, "generic_feedback", meta
 
 
 def top_predictions(vector, limit=3):
-    probs, feedback_count = apply_feedback_probs(word_probabilities(vector), vector)
+    probs, feedback_count, recognizer, meta = apply_feedback_probs(word_probabilities(vector), vector)
     order = np.argsort(probs[0])[::-1][:limit]
     return (
         [{"word_id": int(i), "word": words[int(i)], "confidence": float(probs[0, i])} for i in order],
         feedback_count,
+        recognizer,
+        meta,
     )
 
 
@@ -167,20 +262,30 @@ def audio_stats(audio):
 
 
 def predict_wav(path):
+    map_status = voice_map_status()
+    if VOICE_MAP_ONLY and not map_status["complete"]:
+        raise ValueError(
+            f"Voice map incomplete: {map_status['total_samples']}/{map_status['required_total']} samples saved. "
+            "Open Child Calibration and record the missing words first."
+        )
+
     audio = load_audio(path)
     stats = audio_stats(audio)
     if stats["duration"] < 0.20 or stats["rms"] < 0.001:
         raise ValueError("Recording is too short or too quiet. Please speak closer to the phone.")
 
-    logmel = log_mel_features(audio)
-    vector = sklearn_feature_vector_from_logmel(logmel).reshape(1, -1)
+    vector, speech_audio = feature_vector_from_audio(audio)
+    speech_stats = audio_stats(speech_audio)
 
-    alternatives, feedback_count = top_predictions(vector, limit=3)
+    alternatives, feedback_count, recognizer, map_meta = top_predictions(vector, limit=3)
     word_id = alternatives[0]["word_id"]
     quality_id = int(quality_model.predict(vector)[0]) if quality_model is not None else 1
 
     confidence = alternatives[0]["confidence"]
-    accepted = bool(confidence >= MIN_ACCEPT_CONFIDENCE)
+    if recognizer == "voice_map":
+        accepted = bool(confidence >= VOICE_MAP_MIN_CONFIDENCE and map_meta["margin"] >= VOICE_MAP_MIN_MARGIN)
+    else:
+        accepted = bool(confidence >= MIN_ACCEPT_CONFIDENCE)
     return {
         "word_id": word_id,
         "word": words[word_id],
@@ -191,13 +296,17 @@ def predict_wav(path):
         "model_guess_word": words[word_id],
         "model_guess_confidence": confidence,
         "model_kind": model_kind,
+        "recognizer": recognizer,
         "feedback_samples": feedback_count,
         "min_accept_confidence": MIN_ACCEPT_CONFIDENCE,
+        "voice_map": map_status,
+        "voice_map_margin": map_meta["margin"],
+        "voice_map_similarity": map_meta["best_similarity"],
         "quality": "normal" if quality_id == 1 else "incorrect",
         "quality_label": "Normal / correct" if quality_id == 1 else "Incorrect / needs practice",
         "quality_confidence": estimate_confidence(quality_model, vector) if quality_model is not None else 0.0,
         "reference_url": f"/reference/{word_id}",
-        "audio": stats,
+        "audio": {**stats, "speech_duration": speech_stats["duration"], "speech_rms": speech_stats["rms"]},
     }
 
 
@@ -228,6 +337,7 @@ def append_result(row):
                 "alternatives",
                 "accepted",
                 "model_kind",
+                "recognizer",
                 "feedback_samples",
                 "recording_path",
                 "user_agent",
@@ -250,19 +360,27 @@ def calibrate():
 
 @app.get("/health")
 def health():
-    feedback_vectors, _ = feedback_samples()
-    feedback_count = 0 if feedback_vectors is None else int(len(feedback_vectors))
+    status = voice_map_status()
     return jsonify(
         {
             "ok": True,
             "words": len(words),
             "model": model_kind,
             "preferred_model": PREFERRED_WORD_MODEL,
-            "feedback_samples": feedback_count,
+            "feedback_samples": status["total_samples"],
+            "voice_map": status,
+            "voice_map_only": VOICE_MAP_ONLY,
             "min_accept_confidence": MIN_ACCEPT_CONFIDENCE,
+            "voice_map_min_confidence": VOICE_MAP_MIN_CONFIDENCE,
+            "voice_map_min_margin": VOICE_MAP_MIN_MARGIN,
             "mlp_fallback_below": MLP_FALLBACK_BELOW if mlp_model is not None else 0.0,
         }
     )
+
+
+@app.get("/map-status")
+def map_status():
+    return jsonify(voice_map_status())
 
 
 @app.get("/words")
@@ -272,7 +390,8 @@ def word_list():
 
 def save_feedback_vector(recording_id, word_id, recording_path):
     audio = load_audio(recording_path)
-    vector = sklearn_feature_vector_from_logmel(log_mel_features(audio)).reshape(-1).astype(np.float32)
+    vector, speech_audio = feature_vector_from_audio(audio)
+    vector = vector.reshape(-1).astype(np.float32)
     vector_path = FEEDBACK_VECTOR_DIR / f"{recording_id}_{word_id}.npz"
     np.savez_compressed(vector_path, vector=vector, word_id=np.asarray([word_id], dtype=np.int64))
 
@@ -292,7 +411,7 @@ def save_feedback_vector(recording_id, word_id, recording_path):
                 "vector_path": str(vector_path),
             }
         )
-    return vector_path
+    return vector_path, audio_stats(speech_audio)
 
 
 @app.post("/enroll")
@@ -315,13 +434,22 @@ def enroll():
         stats = audio_stats(audio)
         if stats["duration"] < 0.20 or stats["rms"] < 0.001:
             return jsonify({"error": "Recording is too short or too quiet."}), 400
-        save_feedback_vector(recording_id, word_id, recording_path)
+        _, speech_stats = save_feedback_vector(recording_id, word_id, recording_path)
     except Exception as exc:
         return jsonify({"error": str(exc), "recording_id": recording_id}), 400
 
-    feedback_vectors, _ = feedback_samples()
-    feedback_count = 0 if feedback_vectors is None else int(len(feedback_vectors))
-    return jsonify({"ok": True, "recording_id": recording_id, "word_id": word_id, "word": words[word_id], "feedback_samples": feedback_count})
+    status = voice_map_status()
+    return jsonify(
+        {
+            "ok": True,
+            "recording_id": recording_id,
+            "word_id": word_id,
+            "word": words[word_id],
+            "feedback_samples": status["total_samples"],
+            "voice_map": status,
+            "speech_duration": speech_stats["duration"],
+        }
+    )
 
 
 @app.post("/predict")
@@ -359,6 +487,7 @@ def predict():
             "alternatives": "",
             "accepted": "",
             "model_kind": model_kind,
+            "recognizer": "",
             "feedback_samples": "",
             "recording_path": str(recording_path),
             "user_agent": request.headers.get("User-Agent", ""),
@@ -385,6 +514,7 @@ def predict():
         "alternatives": json.dumps(result["alternatives"], ensure_ascii=False),
         "accepted": result["accepted"],
         "model_kind": result["model_kind"],
+        "recognizer": result["recognizer"],
         "feedback_samples": result["feedback_samples"],
         "recording_path": str(recording_path),
         "user_agent": request.headers.get("User-Agent", ""),
@@ -426,8 +556,18 @@ def feedback():
         return jsonify({"error": "recording not found"}), 404
 
     save_feedback_vector(recording_id, word_id, recording_path)
+    status = voice_map_status()
 
-    return jsonify({"ok": True, "recording_id": recording_id, "word_id": word_id, "word": words[word_id]})
+    return jsonify(
+        {
+            "ok": True,
+            "recording_id": recording_id,
+            "word_id": word_id,
+            "word": words[word_id],
+            "feedback_samples": status["total_samples"],
+            "voice_map": status,
+        }
+    )
 
 
 @app.get("/recordings/<recording_id>")

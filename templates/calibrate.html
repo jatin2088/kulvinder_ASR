@@ -55,7 +55,7 @@
     }
     .nav {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr 1fr 1fr;
       gap: 10px;
     }
     button, select {
@@ -80,6 +80,24 @@
     }
     .record.recording { background: var(--record); }
     .status { color: var(--muted); min-height: 24px; }
+    .progress {
+      display: grid;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 15px;
+    }
+    .bar {
+      height: 14px;
+      background: #e8edf4;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .bar > div {
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+    }
     .level {
       height: 16px;
       background: #e8edf4;
@@ -100,11 +118,16 @@
     <section>
       <select id="wordSelect"></select>
       <div id="word" class="word"></div>
+      <div class="progress">
+        <div id="progressText">Loading voice map...</div>
+        <div class="bar"><div id="progressFill"></div></div>
+      </div>
       <button id="recordButton" class="record">Record Sample</button>
       <div class="level"><div id="levelFill"></div></div>
       <div class="nav">
         <button id="prevButton">Previous</button>
         <button id="nextButton">Next</button>
+        <button id="appButton">Open App</button>
       </div>
       <div id="status" class="status">Record 3 to 5 clear samples for each word.</div>
     </section>
@@ -117,10 +140,18 @@
     const recordButton = document.getElementById("recordButton");
     const prevButton = document.getElementById("prevButton");
     const nextButton = document.getElementById("nextButton");
+    const appButton = document.getElementById("appButton");
     const statusEl = document.getElementById("status");
     const levelFill = document.getElementById("levelFill");
+    const progressText = document.getElementById("progressText");
+    const progressFill = document.getElementById("progressFill");
 
     let wordId = Number(localStorage.getItem("calibrationWordId") || "0");
+    let counts = new Array(words.length).fill(0);
+    let requiredPerWord = 3;
+    let requiredTotal = words.length * requiredPerWord;
+    let totalSamples = 0;
+    let mapComplete = false;
     let audioContext = null;
     let stream = null;
     let source = null;
@@ -133,17 +164,60 @@
     words.forEach((word, index) => {
       const option = document.createElement("option");
       option.value = String(index);
-      option.textContent = `${index + 1}. ${word}`;
+      option.textContent = `${index + 1}. ${word} (0/${requiredPerWord})`;
       wordSelect.appendChild(option);
     });
 
     function setStatus(text) { statusEl.textContent = text; }
 
+    function applyMapStatus(status) {
+      requiredPerWord = Number(status.required_per_word || 3);
+      requiredTotal = Number(status.required_total || words.length * requiredPerWord);
+      totalSamples = Number(status.total_samples || 0);
+      mapComplete = Boolean(status.complete);
+      counts = new Array(words.length).fill(0);
+      (status.words || []).forEach((item) => { counts[item.word_id] = Number(item.count || 0); });
+      words.forEach((word, index) => {
+        wordSelect.options[index].textContent = `${index + 1}. ${word} (${counts[index]}/${requiredPerWord})`;
+      });
+      const percent = Math.min(100, totalSamples / Math.max(1, requiredTotal) * 100);
+      progressFill.style.width = `${percent}%`;
+      progressText.textContent = mapComplete
+        ? `Voice map complete: ${totalSamples}/${requiredTotal} samples`
+        : `Voice map: ${totalSamples}/${requiredTotal} samples. Current word ${counts[wordId]}/${requiredPerWord}.`;
+      updateWordText();
+    }
+
+    async function refreshMapStatus() {
+      const response = await fetch("/map-status", { cache: "no-store" });
+      const status = await response.json();
+      applyMapStatus(status);
+      return status;
+    }
+
     function updateWord() {
       wordId = (wordId + words.length) % words.length;
       localStorage.setItem("calibrationWordId", String(wordId));
       wordSelect.value = String(wordId);
+      updateWordText();
+    }
+
+    function updateWordText() {
       wordEl.textContent = words[wordId];
+      progressText.textContent = mapComplete
+        ? `Voice map complete: ${totalSamples}/${requiredTotal} samples`
+        : `Voice map: ${totalSamples}/${requiredTotal} samples. Current word ${counts[wordId] || 0}/${requiredPerWord}.`;
+    }
+
+    function moveToNextMissing() {
+      for (let offset = 1; offset <= words.length; offset++) {
+        const candidate = (wordId + offset) % words.length;
+        if ((counts[candidate] || 0) < requiredPerWord) {
+          wordId = candidate;
+          updateWord();
+          return;
+        }
+      }
     }
 
     async function ensureMic() {
@@ -170,7 +244,7 @@
       levelFill.style.width = `${Math.min(100, rms(copy) / 0.08 * 100)}%`;
       if (recording) {
         chunks.push(copy);
-        if (performance.now() - startedAt > 4500) stopRecording();
+        if (performance.now() - startedAt > 2500) stopRecording();
       }
     }
 
@@ -255,7 +329,13 @@
         const response = await fetch("/enroll", { method: "POST", body: form });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "Could not save sample");
-        setStatus(`Saved ${result.word}. Total calibration samples: ${result.feedback_samples}`);
+        applyMapStatus(result.voice_map);
+        if (mapComplete) {
+          setStatus("Voice map complete. Open the app and test free speech.");
+        } else {
+          setStatus(`Saved ${result.word}. Speak each word clearly once per sample.`);
+          if ((counts[wordId] || 0) >= requiredPerWord) moveToNextMissing();
+        }
       } catch (error) {
         setStatus(error.message);
       } finally {
@@ -276,7 +356,9 @@
     });
     prevButton.addEventListener("click", () => { wordId -= 1; updateWord(); });
     nextButton.addEventListener("click", () => { wordId += 1; updateWord(); });
+    appButton.addEventListener("click", () => { window.location.href = "/"; });
     updateWord();
+    refreshMapStatus().catch((error) => setStatus(error.message));
   </script>
 </body>
 </html>
