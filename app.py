@@ -15,6 +15,7 @@ from model_utils import SAMPLE_RATE, load_audio, log_mel_features, sklearn_featu
 
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / "models" / "sklearn_word_model.joblib"
+MLP_MODEL_PATH = BASE_DIR / "models" / "mlp_word_model_np.npz"
 MANIFEST_PATH = BASE_DIR / "models" / "manifest.json"
 DATA_DIR = BASE_DIR / "data"
 RECORDINGS_DIR = DATA_DIR / "recordings"
@@ -24,10 +25,18 @@ RESULTS_CSV = DATA_DIR / "results.csv"
 app = Flask(__name__)
 
 artifact = joblib.load(MODEL_PATH)
-word_model = artifact["word_model"]
 quality_model = artifact.get("quality_model")
-words = artifact["words"]
 references = artifact.get("references", {})
+if MLP_MODEL_PATH.exists():
+    model_kind = "mlp_numpy"
+    mlp_model = np.load(MLP_MODEL_PATH, allow_pickle=True)
+    word_model = None
+    words = mlp_model["words"].tolist()
+else:
+    model_kind = "sklearn"
+    mlp_model = None
+    word_model = artifact["word_model"]
+    words = artifact["words"]
 
 if MANIFEST_PATH.exists():
     with MANIFEST_PATH.open("r", encoding="utf-8") as handle:
@@ -49,31 +58,44 @@ def estimate_confidence(model, vector):
     return 1.0
 
 
-def class_confidence(model, vector, class_id):
-    if hasattr(model, "decision_function"):
-        scores = np.asarray(model.decision_function(vector), dtype=np.float64)
-        if scores.ndim == 1:
-            scores = np.stack([-scores, scores], axis=1)
-        scores = scores - scores.max(axis=1, keepdims=True)
-        probs = np.exp(scores)
-        probs = probs / probs.sum(axis=1, keepdims=True)
-        if 0 <= class_id < probs.shape[1]:
-            return float(probs[0, class_id])
-    return 0.0
+def silu(x):
+    return x / (1.0 + np.exp(-x))
 
 
-def top_predictions(model, vector, limit=3):
-    if hasattr(model, "decision_function"):
-        scores = np.asarray(model.decision_function(vector), dtype=np.float64)
-        if scores.ndim == 1:
-            scores = np.stack([-scores, scores], axis=1)
-        scores = scores - scores.max(axis=1, keepdims=True)
-        probs = np.exp(scores)
-        probs = probs / probs.sum(axis=1, keepdims=True)
-        order = np.argsort(probs[0])[::-1][:limit]
-        return [{"word_id": int(i), "word": words[int(i)], "confidence": float(probs[0, i])} for i in order]
-    pred = int(model.predict(vector)[0])
-    return [{"word_id": pred, "word": words[pred], "confidence": 1.0}]
+def linear(x, weight, bias):
+    return np.matmul(x, weight.T) + bias
+
+
+def batch_norm(x, gamma, beta, mean, var):
+    return (x - mean) / np.sqrt(var + 1e-5) * gamma + beta
+
+
+def mlp_probabilities(vector):
+    x = ((vector.astype(np.float32) - mlp_model["mean"]) / mlp_model["std"]).astype(np.float32)
+    x = silu(batch_norm(linear(x, mlp_model["l1_w"], mlp_model["l1_b"]), mlp_model["b1_w"], mlp_model["b1_b"], mlp_model["b1_mean"], mlp_model["b1_var"]))
+    x = silu(batch_norm(linear(x, mlp_model["l2_w"], mlp_model["l2_b"]), mlp_model["b2_w"], mlp_model["b2_b"], mlp_model["b2_mean"], mlp_model["b2_var"]))
+    x = silu(batch_norm(linear(x, mlp_model["l3_w"], mlp_model["l3_b"]), mlp_model["b3_w"], mlp_model["b3_b"], mlp_model["b3_mean"], mlp_model["b3_var"]))
+    scores = linear(x, mlp_model["l4_w"], mlp_model["l4_b"]).astype(np.float64)
+    scores = scores - scores.max(axis=1, keepdims=True)
+    probs = np.exp(scores)
+    return probs / probs.sum(axis=1, keepdims=True)
+
+
+def word_probabilities(vector):
+    if model_kind == "mlp_numpy":
+        return mlp_probabilities(vector)
+    scores = np.asarray(word_model.decision_function(vector), dtype=np.float64)
+    if scores.ndim == 1:
+        scores = np.stack([-scores, scores], axis=1)
+    scores = scores - scores.max(axis=1, keepdims=True)
+    probs = np.exp(scores)
+    return probs / probs.sum(axis=1, keepdims=True)
+
+
+def top_predictions(vector, limit=3):
+    probs = word_probabilities(vector)
+    order = np.argsort(probs[0])[::-1][:limit]
+    return [{"word_id": int(i), "word": words[int(i)], "confidence": float(probs[0, i])} for i in order]
 
 
 def audio_stats(audio):
@@ -86,7 +108,7 @@ def audio_stats(audio):
     }
 
 
-def predict_wav(path, target_word_id=None):
+def predict_wav(path):
     audio = load_audio(path)
     stats = audio_stats(audio)
     if stats["duration"] < 0.20 or stats["rms"] < 0.001:
@@ -95,24 +117,22 @@ def predict_wav(path, target_word_id=None):
     logmel = log_mel_features(audio)
     vector = sklearn_feature_vector_from_logmel(logmel).reshape(1, -1)
 
-    guessed_word_id = int(word_model.predict(vector)[0])
-    word_id = guessed_word_id
-    if target_word_id is not None and 0 <= target_word_id < len(words):
-        word_id = int(target_word_id)
+    alternatives = top_predictions(vector, limit=3)
+    word_id = alternatives[0]["word_id"]
     quality_id = int(quality_model.predict(vector)[0]) if quality_model is not None else 1
 
-    confidence = class_confidence(word_model, vector, word_id)
-    accepted = bool(confidence >= 0.12 or target_word_id is not None)
+    confidence = alternatives[0]["confidence"]
+    accepted = bool(confidence >= 0.20)
     return {
         "word_id": word_id,
         "word": words[word_id],
         "confidence": confidence,
         "accepted": accepted,
-        "alternatives": top_predictions(word_model, vector, limit=3),
-        "model_guess_word_id": guessed_word_id,
-        "model_guess_word": words[guessed_word_id],
-        "model_guess_confidence": estimate_confidence(word_model, vector),
-        "used_target": bool(target_word_id is not None and 0 <= target_word_id < len(words)),
+        "alternatives": alternatives,
+        "model_guess_word_id": word_id,
+        "model_guess_word": words[word_id],
+        "model_guess_confidence": confidence,
+        "model_kind": model_kind,
         "quality": "normal" if quality_id == 1 else "incorrect",
         "quality_label": "Normal / correct" if quality_id == 1 else "Incorrect / needs practice",
         "quality_confidence": estimate_confidence(quality_model, vector) if quality_model is not None else 0.0,
@@ -143,11 +163,10 @@ def append_result(row):
                 "client_duration",
                 "client_rms",
                 "client_noise_floor",
-                "target_word",
                 "model_guess_word",
                 "model_guess_confidence",
-                "used_target",
                 "accepted",
+                "model_kind",
                 "recording_path",
                 "user_agent",
             ],
@@ -164,7 +183,7 @@ def index():
 
 @app.get("/health")
 def health():
-    return jsonify({"ok": True, "words": len(words)})
+    return jsonify({"ok": True, "words": len(words), "model": model_kind})
 
 
 @app.post("/predict")
@@ -182,9 +201,7 @@ def predict():
 
     try:
         audio_file.save(recording_path)
-        target_word_id = request.form.get("target_word_id", "").strip()
-        target_word_id = int(target_word_id) if target_word_id.isdigit() else None
-        result = predict_wav(recording_path, target_word_id=target_word_id)
+        result = predict_wav(recording_path)
     except Exception as exc:
         error_row = {
             "id": recording_id,
@@ -199,10 +216,10 @@ def predict():
             "client_duration": request.form.get("duration", ""),
             "client_rms": request.form.get("rms", ""),
             "client_noise_floor": request.form.get("noise_floor", ""),
-            "target_word": "",
             "model_guess_word": "",
             "model_guess_confidence": "",
-            "used_target": "",
+            "accepted": "",
+            "model_kind": model_kind,
             "recording_path": str(recording_path),
             "user_agent": request.headers.get("User-Agent", ""),
             "error": str(exc),
@@ -223,11 +240,10 @@ def predict():
         "client_duration": request.form.get("duration", ""),
         "client_rms": request.form.get("rms", ""),
         "client_noise_floor": request.form.get("noise_floor", ""),
-        "target_word": result["word"] if result["used_target"] else "",
         "model_guess_word": result["model_guess_word"],
         "model_guess_confidence": round(result["model_guess_confidence"], 6),
-        "used_target": result["used_target"],
         "accepted": result["accepted"],
+        "model_kind": result["model_kind"],
         "recording_path": str(recording_path),
         "user_agent": request.headers.get("User-Agent", ""),
     }

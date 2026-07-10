@@ -7,5 +7,9 @@ data/
 models/features_cache.npz
 models/sklearn_features_cache.npz
 models/sklearn_noise_features_cache*.npz
+models/cnn_logmel_*.npz
 models/last_recording.wav
 models/word_correction_model.pt
+models/mlp_word_model.pt
+models/cnn_word_model.pt
+models/cnn_training_summary.json
