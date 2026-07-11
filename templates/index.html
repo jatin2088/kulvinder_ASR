@@ -271,10 +271,9 @@
         const voiceMap = health.voice_map || {};
         voiceMapComplete = Boolean(voiceMap.complete);
         voiceMapRequired = Number(voiceMap.required_total || 150);
-        if (!voiceMapComplete) {
+        if (!voiceMapComplete && feedbackSamples > 0) {
           setupWarning.classList.add("visible");
-          setupWarning.textContent = `Voice map required: ${feedbackSamples}/${voiceMapRequired} samples saved. Open Child Calibration first.`;
-          speakButton.textContent = "Open Calibration";
+          setupWarning.textContent = `Learning mode: ${feedbackSamples}/${voiceMapRequired} saved samples. Testing is open.`;
         } else {
           setupWarning.classList.remove("visible");
           if (!recording && !busy) speakButton.textContent = "Start Speaking";
@@ -382,10 +381,6 @@
     }
 
     async function startRecording() {
-      if (!voiceMapComplete) {
-        window.location.href = "/calibrate";
-        return;
-      }
       await ensureMic();
       await audioContext.resume();
       chunks = [];

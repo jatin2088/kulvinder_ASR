@@ -33,7 +33,7 @@ PREFERRED_WORD_MODEL = os.getenv("WORD_MODEL_KIND", "sklearn").strip().lower()
 MIN_ACCEPT_CONFIDENCE = float(os.getenv("MIN_ACCEPT_CONFIDENCE", "0.60"))
 MLP_FALLBACK_BELOW = float(os.getenv("MLP_FALLBACK_BELOW", "0.60"))
 REQUIRED_SAMPLES_PER_WORD = int(os.getenv("REQUIRED_SAMPLES_PER_WORD", "3"))
-VOICE_MAP_ONLY = os.getenv("VOICE_MAP_ONLY", "1").strip().lower() not in {"0", "false", "no"}
+VOICE_MAP_ONLY = os.getenv("VOICE_MAP_ONLY", "0").strip().lower() not in {"0", "false", "no"}
 VOICE_MAP_MIN_CONFIDENCE = float(os.getenv("VOICE_MAP_MIN_CONFIDENCE", "0.42"))
 VOICE_MAP_MIN_MARGIN = float(os.getenv("VOICE_MAP_MIN_MARGIN", "0.08"))
 MAX_WORD_SECONDS = float(os.getenv("MAX_WORD_SECONDS", "1.35"))
@@ -274,7 +274,11 @@ def predict_wav(path):
     if stats["duration"] < 0.20 or stats["rms"] < 0.001:
         raise ValueError("Recording is too short or too quiet. Please speak closer to the phone.")
 
-    vector, speech_audio = feature_vector_from_audio(audio)
+    if map_status["complete"]:
+        vector, speech_audio = feature_vector_from_audio(audio)
+    else:
+        vector = sklearn_feature_vector_from_logmel(log_mel_features(audio)).reshape(1, -1)
+        speech_audio = audio
     speech_stats = audio_stats(speech_audio)
 
     alternatives, feedback_count, recognizer, map_meta = top_predictions(vector, limit=3)
