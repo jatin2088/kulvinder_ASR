@@ -2,11 +2,14 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+.tts_vendor/
 dataset/
 data/
 render_recordings/
 render_results.csv
 render_results_latest.csv
+synthetic_tts_test/
+synthetic_tts_dataset/
 models/features_cache.npz
 models/sklearn_features_cache.npz
 models/sklearn_noise_features_cache*.npz

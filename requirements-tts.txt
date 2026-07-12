@@ -1,0 +1,4 @@
+edge-tts
+miniaudio
+numpy
+scipy
