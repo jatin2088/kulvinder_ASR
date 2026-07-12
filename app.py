@@ -16,6 +16,7 @@ from model_utils import SAMPLE_RATE, load_audio, log_mel_features, sklearn_featu
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / "models" / "sklearn_word_model.joblib"
 MLP_MODEL_PATH = BASE_DIR / "models" / "mlp_word_model_np.npz"
+REFERENCE_VECTOR_PATH = BASE_DIR / "models" / "reference_vectors_mlp.npz"
 MANIFEST_PATH = BASE_DIR / "models" / "manifest.json"
 DATA_DIR = BASE_DIR / "data"
 RECORDINGS_DIR = DATA_DIR / "recordings"
@@ -29,7 +30,7 @@ app = Flask(__name__)
 artifact = joblib.load(MODEL_PATH)
 quality_model = artifact.get("quality_model")
 references = artifact.get("references", {})
-PREFERRED_WORD_MODEL = os.getenv("WORD_MODEL_KIND", "sklearn").strip().lower()
+PREFERRED_WORD_MODEL = os.getenv("WORD_MODEL_KIND", "mlp").strip().lower()
 MIN_ACCEPT_CONFIDENCE = float(os.getenv("MIN_ACCEPT_CONFIDENCE", "0.60"))
 MLP_FALLBACK_BELOW = float(os.getenv("MLP_FALLBACK_BELOW", "0.60"))
 REQUIRED_SAMPLES_PER_WORD = int(os.getenv("REQUIRED_SAMPLES_PER_WORD", "3"))
@@ -37,7 +38,12 @@ VOICE_MAP_ONLY = os.getenv("VOICE_MAP_ONLY", "0").strip().lower() not in {"0", "
 VOICE_MAP_MIN_CONFIDENCE = float(os.getenv("VOICE_MAP_MIN_CONFIDENCE", "0.42"))
 VOICE_MAP_MIN_MARGIN = float(os.getenv("VOICE_MAP_MIN_MARGIN", "0.08"))
 MAX_WORD_SECONDS = float(os.getenv("MAX_WORD_SECONDS", "1.35"))
+REFERENCE_BOOST_SIMILARITY = float(os.getenv("REFERENCE_BOOST_SIMILARITY", "0.55"))
+REFERENCE_BOOST_MARGIN = float(os.getenv("REFERENCE_BOOST_MARGIN", "0.08"))
+REFERENCE_BOOST_BLEND = float(os.getenv("REFERENCE_BOOST_BLEND", "0.55"))
+REFERENCE_BOOST_TEMPERATURE = float(os.getenv("REFERENCE_BOOST_TEMPERATURE", "18.0"))
 mlp_model = np.load(MLP_MODEL_PATH, allow_pickle=True) if MLP_MODEL_PATH.exists() else None
+reference_vector_bank = np.load(REFERENCE_VECTOR_PATH, allow_pickle=True) if REFERENCE_VECTOR_PATH.exists() else None
 
 if PREFERRED_WORD_MODEL == "mlp" and mlp_model is not None:
     model_kind = "mlp_numpy"
@@ -94,19 +100,53 @@ def mlp_probabilities(vector):
 
 def word_probabilities(vector):
     if model_kind == "mlp_numpy":
-        return mlp_probabilities(vector)
-    scores = np.asarray(word_model.decision_function(vector), dtype=np.float64)
-    if scores.ndim == 1:
-        scores = np.stack([-scores, scores], axis=1)
-    scores = scores - scores.max(axis=1, keepdims=True)
-    probs = np.exp(scores)
-    probs = probs / probs.sum(axis=1, keepdims=True)
-    if mlp_model is not None and MLP_FALLBACK_BELOW > 0:
-        low_confidence = probs.max(axis=1) < MLP_FALLBACK_BELOW
-        if np.any(low_confidence):
-            mlp_probs = mlp_probabilities(vector)
-            probs[low_confidence] = mlp_probs[low_confidence]
-    return probs
+        probs = mlp_probabilities(vector)
+    else:
+        scores = np.asarray(word_model.decision_function(vector), dtype=np.float64)
+        if scores.ndim == 1:
+            scores = np.stack([-scores, scores], axis=1)
+        scores = scores - scores.max(axis=1, keepdims=True)
+        probs = np.exp(scores)
+        probs = probs / probs.sum(axis=1, keepdims=True)
+        if mlp_model is not None and MLP_FALLBACK_BELOW > 0:
+            low_confidence = probs.max(axis=1) < MLP_FALLBACK_BELOW
+            if np.any(low_confidence):
+                mlp_probs = mlp_probabilities(vector)
+                probs[low_confidence] = mlp_probs[low_confidence]
+    return apply_reference_boost(probs, vector)
+
+
+def reference_query_embedding(vector):
+    query = np.asarray(vector, dtype=np.float32)
+    if query.ndim == 1:
+        query = query.reshape(1, -1)
+    if mlp_model is not None:
+        query = ((query - mlp_model["mean"]) / mlp_model["std"]).astype(np.float32)
+    query = query[0]
+    return query / (np.linalg.norm(query) + 1e-6)
+
+
+def apply_reference_boost(probs, vector):
+    if reference_vector_bank is None or REFERENCE_BOOST_BLEND <= 0:
+        return probs
+    vectors = reference_vector_bank["vectors"].astype(np.float32)
+    word_ids = reference_vector_bank["word_ids"].astype(np.int64)
+    if vectors.size == 0 or word_ids.size == 0:
+        return probs
+
+    query = reference_query_embedding(vector)
+    sims = np.matmul(vectors, query)
+    order = np.argsort(sims)[::-1]
+    best = float(sims[order[0]])
+    second = float(sims[order[1]]) if order.size > 1 else -1.0
+    if best < REFERENCE_BOOST_SIMILARITY or best - second < REFERENCE_BOOST_MARGIN:
+        return probs
+
+    scores = np.exp((sims - sims.max()) * REFERENCE_BOOST_TEMPERATURE)
+    ref_probs = np.zeros((len(words),), dtype=np.float64)
+    ref_probs[word_ids] = scores / max(float(scores.sum()), 1e-9)
+    boosted = (1.0 - REFERENCE_BOOST_BLEND) * probs[0] + REFERENCE_BOOST_BLEND * ref_probs
+    return boosted.reshape(1, -1)
 
 
 def feedback_samples():
@@ -274,11 +314,7 @@ def predict_wav(path):
     if stats["duration"] < 0.20 or stats["rms"] < 0.001:
         raise ValueError("Recording is too short or too quiet. Please speak closer to the phone.")
 
-    if map_status["complete"]:
-        vector, speech_audio = feature_vector_from_audio(audio)
-    else:
-        vector = sklearn_feature_vector_from_logmel(log_mel_features(audio)).reshape(1, -1)
-        speech_audio = audio
+    vector, speech_audio = feature_vector_from_audio(audio)
     speech_stats = audio_stats(speech_audio)
 
     alternatives, feedback_count, recognizer, map_meta = top_predictions(vector, limit=3)

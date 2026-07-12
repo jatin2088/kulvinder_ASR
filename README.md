@@ -12,14 +12,18 @@ The GUI listens to one short spoken word, predicts the intended word only from t
 ## Train
 
 ```powershell
-python train_sklearn_model.py --force-cache
+python train_sklearn_model.py --force-cache --noise-augment --noise-copies 2
+python train_mlp_model.py --epochs 60 --batch-size 256 --d-repeat 3
 ```
 
 Outputs are saved in `models/`:
 
 - `sklearn_word_model.joblib`
+- `mlp_word_model_np.npz`
+- `reference_vectors_mlp.npz`
 - `manifest.json`
 - `sklearn_training_summary.json`
+- `mlp_training_summary.json`
 - `sklearn_features_cache.npz`
 
 ## Run GUI
@@ -52,7 +56,7 @@ Useful test/export URLs:
 /recordings/<recording_id>
 ```
 
-`/health` should report `model: sklearn` by default. `/results.csv` contains every test result, including top alternatives and the saved recording ID. Use `/recordings/<recording_id>` to download the exact WAV that the phone sent.
+`/health` should report `model: mlp_numpy` by default. `/results.csv` contains every test result, including top alternatives and the saved recording ID. Use `/recordings/<recording_id>` to download the exact WAV that the phone sent.
 
 If a prediction is wrong, choose the correct word in the feedback control after the result and click **Save Correct Label**. Those labeled phone recordings are used immediately by the server as calibration examples for future predictions.
 
@@ -85,10 +89,13 @@ No secret key is required. Mobile microphone recording needs HTTPS; Render provi
 
 Current trained model:
 
-- Default runtime word model: `sklearn` SVM/PCA closed-vocabulary recognizer
-- Optional neural model: set `WORD_MODEL_KIND=mlp`
+- Default runtime word model: `mlp_numpy` neural closed-vocabulary recognizer
+- Fallback classical model: set `WORD_MODEL_KIND=sklearn`
 - Live mode opens immediately by default. Set `VOICE_MAP_ONLY=1` only if you want to block predictions until child/phone mapping is complete.
-- Validation word accuracy during sklearn training: `67.3%`
+- MLP validation clean word accuracy: `71.3%`
+- MLP validation noisy word accuracy: `66.1%`
+- Local Flask smoke test: clean `47/50`, noisy `41/50`, accepted noisy correct `41/45`
+- Static reference test: clean `50/50`, noisy `42/50`
 - Validation `D`/`N` pronunciation quality accuracy: `94.9%`
 - Broken WAV files skipped: `6`
 
