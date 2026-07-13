@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Muharani Calibration</title>
+  <title>Teach Child Voice</title>
   <style>
     :root {
       --ink: #20242a;
@@ -114,7 +114,7 @@
 </head>
 <body>
   <main>
-    <h1>Calibration</h1>
+    <h1>Teach Child Voice</h1>
     <section>
       <select id="wordSelect"></select>
       <div id="word" class="word"></div>
@@ -129,7 +129,7 @@
         <button id="nextButton">Next</button>
         <button id="appButton">Open App</button>
       </div>
-      <div id="status" class="status">Record 3 to 5 clear samples for each word.</div>
+      <div id="status" class="status">Record the required clear samples for each word. Then open the app for free speech.</div>
     </section>
   </main>
 
@@ -183,8 +183,8 @@
       const percent = Math.min(100, totalSamples / Math.max(1, requiredTotal) * 100);
       progressFill.style.width = `${percent}%`;
       progressText.textContent = mapComplete
-        ? `Voice map complete: ${totalSamples}/${requiredTotal} samples`
-        : `Voice map: ${totalSamples}/${requiredTotal} samples. Current word ${counts[wordId]}/${requiredPerWord}.`;
+        ? `Child voice ready: ${totalSamples}/${requiredTotal} samples`
+        : `Child voice: ${totalSamples}/${requiredTotal} samples. Current word ${counts[wordId]}/${requiredPerWord}.`;
       updateWordText();
     }
 
@@ -205,8 +205,8 @@
     function updateWordText() {
       wordEl.textContent = words[wordId];
       progressText.textContent = mapComplete
-        ? `Voice map complete: ${totalSamples}/${requiredTotal} samples`
-        : `Voice map: ${totalSamples}/${requiredTotal} samples. Current word ${counts[wordId] || 0}/${requiredPerWord}.`;
+        ? `Child voice ready: ${totalSamples}/${requiredTotal} samples`
+        : `Child voice: ${totalSamples}/${requiredTotal} samples. Current word ${counts[wordId] || 0}/${requiredPerWord}.`;
     }
 
     function moveToNextMissing() {
@@ -331,7 +331,7 @@
         if (!response.ok) throw new Error(result.error || "Could not save sample");
         applyMapStatus(result.voice_map);
         if (mapComplete) {
-          setStatus("Voice map complete. Open the app and test free speech.");
+          setStatus("Child voice ready. Open the app and test free speech.");
         } else {
           setStatus(`Saved ${result.word}. Speak each word clearly once per sample.`);
           if ((counts[wordId] || 0) >= requiredPerWord) moveToNextMissing();

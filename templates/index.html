@@ -253,6 +253,7 @@
     let feedbackSamples = 0;
     let voiceMapComplete = false;
     let voiceMapRequired = 150;
+    let voiceMapOnly = true;
 
     words.forEach((word, index) => {
       const option = document.createElement("option");
@@ -268,10 +269,15 @@
         const response = await fetch("/health", { cache: "no-store" });
         const health = await response.json();
         feedbackSamples = Number(health.feedback_samples || 0);
+        voiceMapOnly = Boolean(health.voice_map_only);
         const voiceMap = health.voice_map || {};
         voiceMapComplete = Boolean(voiceMap.complete);
         voiceMapRequired = Number(voiceMap.required_total || 150);
-        if (!voiceMapComplete && feedbackSamples > 0) {
+        if (voiceMapOnly && !voiceMapComplete) {
+          setupWarning.classList.add("visible");
+          setupWarning.textContent = `Teach child voice first: ${feedbackSamples}/${voiceMapRequired} samples saved.`;
+          if (!recording && !busy) speakButton.textContent = "Teach Child Voice";
+        } else if (!voiceMapComplete && feedbackSamples > 0) {
           setupWarning.classList.add("visible");
           setupWarning.textContent = `Learning mode: ${feedbackSamples}/${voiceMapRequired} saved samples. Testing is open.`;
         } else {
@@ -478,6 +484,10 @@
     speakButton.addEventListener("click", async () => {
       try {
         if (busy) return;
+        if (voiceMapOnly && !voiceMapComplete) {
+          window.location.href = "/calibrate";
+          return;
+        }
         if (recording) await stopRecording();
         else await startRecording();
       } catch (error) {

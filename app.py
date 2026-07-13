@@ -34,7 +34,7 @@ PREFERRED_WORD_MODEL = os.getenv("WORD_MODEL_KIND", "mlp").strip().lower()
 MIN_ACCEPT_CONFIDENCE = float(os.getenv("MIN_ACCEPT_CONFIDENCE", "0.60"))
 MLP_FALLBACK_BELOW = float(os.getenv("MLP_FALLBACK_BELOW", "0.60"))
 REQUIRED_SAMPLES_PER_WORD = int(os.getenv("REQUIRED_SAMPLES_PER_WORD", "3"))
-VOICE_MAP_ONLY = os.getenv("VOICE_MAP_ONLY", "0").strip().lower() not in {"0", "false", "no"}
+VOICE_MAP_ONLY = os.getenv("VOICE_MAP_ONLY", "1").strip().lower() not in {"0", "false", "no"}
 VOICE_MAP_MIN_CONFIDENCE = float(os.getenv("VOICE_MAP_MIN_CONFIDENCE", "0.42"))
 VOICE_MAP_MIN_MARGIN = float(os.getenv("VOICE_MAP_MIN_MARGIN", "0.08"))
 MAX_WORD_SECONDS = float(os.getenv("MAX_WORD_SECONDS", "1.35"))
@@ -96,6 +96,14 @@ def mlp_probabilities(vector):
     scores = scores - scores.max(axis=1, keepdims=True)
     probs = np.exp(scores)
     return probs / probs.sum(axis=1, keepdims=True)
+
+
+def mlp_embedding(vector):
+    x = ((vector.astype(np.float32) - mlp_model["mean"]) / mlp_model["std"]).astype(np.float32)
+    x = silu(batch_norm(linear(x, mlp_model["l1_w"], mlp_model["l1_b"]), mlp_model["b1_w"], mlp_model["b1_b"], mlp_model["b1_mean"], mlp_model["b1_var"]))
+    x = silu(batch_norm(linear(x, mlp_model["l2_w"], mlp_model["l2_b"]), mlp_model["b2_w"], mlp_model["b2_b"], mlp_model["b2_mean"], mlp_model["b2_var"]))
+    x = silu(batch_norm(linear(x, mlp_model["l3_w"], mlp_model["l3_b"]), mlp_model["b3_w"], mlp_model["b3_b"], mlp_model["b3_mean"], mlp_model["b3_var"]))
+    return x.astype(np.float32)
 
 
 def word_probabilities(vector):
@@ -224,6 +232,8 @@ def word_embedding(vectors):
     vectors = np.asarray(vectors, dtype=np.float32)
     if vectors.ndim == 1:
         vectors = vectors.reshape(1, -1)
+    if mlp_model is not None:
+        return mlp_embedding(vectors)
     if model_kind == "sklearn" and word_model is not None and hasattr(word_model, "steps"):
         return word_model[:-1].transform(vectors).astype(np.float32)
     return vectors.astype(np.float32)
@@ -307,7 +317,7 @@ def predict_wav(path):
     if VOICE_MAP_ONLY and not map_status["complete"]:
         raise ValueError(
             f"Voice map incomplete: {map_status['total_samples']}/{map_status['required_total']} samples saved. "
-            "Open Child Calibration and record the missing words first."
+            "Open Teach Child Voice and record the missing words first."
         )
 
     audio = load_audio(path)

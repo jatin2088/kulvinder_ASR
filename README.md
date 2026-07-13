@@ -64,15 +64,15 @@ If a prediction is wrong, choose the correct word in the feedback control after 
 
 ## Real Deployment Plan
 
-The runtime screen is free-speak: the child presses **Start Speaking**, says any one of the 50 words, presses **Stop & Correct**, and the app displays and plays the corrected Punjabi word.
+The runtime screen is free-speak after the child voice map is ready: the child presses **Start Speaking**, says any one of the 50 words, presses **Stop & Correct**, and the app displays and plays the corrected Punjabi word.
 
-Child-specific learning is available but not mandatory:
+Child-specific learning is mandatory in production mode. The app will not make random generic guesses before setup:
 
-1. Open `/calibrate`.
+1. Open `/calibrate` or tap **Teach Child Voice**.
 2. Record at least 3 clear samples for each word using the same child and phone.
 3. Return to `/` for free-speak detection.
 
-Calibration/feedback is an admin/teacher improvement step; the normal runtime screen still does not show a target word before speaking.
+The normal runtime screen still does not show a target word before speaking. The target words are only shown during teacher setup.
 
 Calibration requires persistent storage on Render. The Blueprint includes a disk mounted at `/opt/render/project/src/data`; if Render rejects the disk on the free plan, upgrade the service plan or add the disk manually from the Render dashboard.
 
@@ -93,12 +93,13 @@ Current trained model:
 
 - Default runtime word model: `mlp_numpy` neural closed-vocabulary recognizer
 - Fallback classical model: set `WORD_MODEL_KIND=sklearn`
-- Live mode opens immediately by default. Set `VOICE_MAP_ONLY=1` only if you want to block predictions until child/phone mapping is complete.
+- Production mode blocks predictions until the child/phone voice map is complete. Set `VOICE_MAP_ONLY=0` only for developer smoke tests.
 - MLP validation clean word accuracy: `71.3%`
 - MLP validation noisy word accuracy: `66.1%`
 - Synthetic clean TTS dataset: `750` WAVs, tested `750/750`
 - Local Flask smoke test: clean `46/50`, noisy `42/50`, accepted noisy correct `41/46`
 - Static reference test: clean `50/50`, noisy `45/50`
+- Simulated complete voice-map test: clean `50/50`, noisy `49/50`
 - Validation `D`/`N` pronunciation quality accuracy: `94.9%`
 - Broken WAV files skipped: `6`
 
