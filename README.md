@@ -12,8 +12,9 @@ The GUI listens to one short spoken word, predicts the intended word only from t
 ## Train
 
 ```powershell
+python generate_synthetic_tts_dataset.py
 python train_sklearn_model.py --force-cache --noise-augment --noise-copies 2
-python train_mlp_model.py --epochs 60 --batch-size 256 --d-repeat 3
+python train_mlp_model.py --epochs 60 --batch-size 256 --d-repeat 3 --synthetic-repeat 2
 ```
 
 Outputs are saved in `models/`:
@@ -21,6 +22,7 @@ Outputs are saved in `models/`:
 - `sklearn_word_model.joblib`
 - `mlp_word_model_np.npz`
 - `reference_vectors_mlp.npz`
+- `synthetic_tts_features.npz`
 - `manifest.json`
 - `sklearn_training_summary.json`
 - `mlp_training_summary.json`
@@ -94,8 +96,9 @@ Current trained model:
 - Live mode opens immediately by default. Set `VOICE_MAP_ONLY=1` only if you want to block predictions until child/phone mapping is complete.
 - MLP validation clean word accuracy: `71.3%`
 - MLP validation noisy word accuracy: `66.1%`
-- Local Flask smoke test: clean `47/50`, noisy `41/50`, accepted noisy correct `41/45`
-- Static reference test: clean `50/50`, noisy `42/50`
+- Synthetic clean TTS dataset: `750` WAVs, tested `750/750`
+- Local Flask smoke test: clean `46/50`, noisy `42/50`, accepted noisy correct `41/46`
+- Static reference test: clean `50/50`, noisy `45/50`
 - Validation `D`/`N` pronunciation quality accuracy: `94.9%`
 - Broken WAV files skipped: `6`
 

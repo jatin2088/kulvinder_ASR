@@ -144,7 +144,8 @@ def apply_reference_boost(probs, vector):
 
     scores = np.exp((sims - sims.max()) * REFERENCE_BOOST_TEMPERATURE)
     ref_probs = np.zeros((len(words),), dtype=np.float64)
-    ref_probs[word_ids] = scores / max(float(scores.sum()), 1e-9)
+    np.add.at(ref_probs, word_ids, scores)
+    ref_probs = ref_probs / max(float(ref_probs.sum()), 1e-9)
     boosted = (1.0 - REFERENCE_BOOST_BLEND) * probs[0] + REFERENCE_BOOST_BLEND * ref_probs
     return boosted.reshape(1, -1)
 

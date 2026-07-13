@@ -9,7 +9,7 @@ from sklearn.metrics import accuracy_score, classification_report
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, TensorDataset
 
-from model_utils import SAMPLE_RATE, load_audio, log_mel_features, sklearn_feature_vector_from_logmel
+from model_utils import SAMPLE_RATE, discover_dataset, load_audio, log_mel_features, sklearn_feature_vector_from_logmel
 
 
 class MuharaniMLP(nn.Module):
@@ -93,10 +93,10 @@ def export_numpy_model(model, checkpoint, out_dir):
     )
 
 
-def repeat_d_indices(indices, q_base, rows_per_part, d_repeat):
+def repeat_d_indices(indices, quality_by_index, d_repeat):
     if d_repeat <= 1:
         return indices
-    d_indices = indices[q_base[indices % rows_per_part] == "D"]
+    d_indices = indices[quality_by_index[indices] == "D"]
     return np.concatenate([indices] + [d_indices for _ in range(d_repeat - 1)])
 
 
@@ -126,7 +126,12 @@ def extract_reference_audio(audio, max_seconds=1.35):
     return audio[start : start + window]
 
 
-def export_reference_vectors(words, mean, std, out_dir):
+def vector_from_audio_path(path):
+    audio = extract_reference_audio(load_audio(path))
+    return sklearn_feature_vector_from_logmel(log_mel_features(audio)).reshape(1, -1)
+
+
+def export_reference_vectors(words, mean, std, out_dir, synthetic_rows=None, word_to_id=None):
     vectors = []
     word_ids = []
     references_dir = Path("static") / "references"
@@ -134,12 +139,21 @@ def export_reference_vectors(words, mean, std, out_dir):
         path = references_dir / f"{word_id}.wav"
         if not path.exists():
             continue
-        audio = extract_reference_audio(load_audio(path))
-        vector = sklearn_feature_vector_from_logmel(log_mel_features(audio)).reshape(1, -1)
+        vector = vector_from_audio_path(path)
         embedding = ((vector.astype(np.float32) - mean) / std).reshape(-1)
         embedding = embedding / (np.linalg.norm(embedding) + 1e-6)
         vectors.append(embedding.astype(np.float32))
         word_ids.append(word_id)
+    if synthetic_rows and word_to_id:
+        for row in synthetic_rows:
+            word_id = word_to_id.get(row["word"])
+            if word_id is None:
+                continue
+            vector = vector_from_audio_path(row["path"])
+            embedding = ((vector.astype(np.float32) - mean) / std).reshape(-1)
+            embedding = embedding / (np.linalg.norm(embedding) + 1e-6)
+            vectors.append(embedding.astype(np.float32))
+            word_ids.append(word_id)
     if not vectors:
         return None
     path = out_dir / "reference_vectors_mlp.npz"
@@ -153,9 +167,65 @@ def export_reference_vectors(words, mean, std, out_dir):
     return path
 
 
-def fit_production_model(x, y, q_base, words, references, mean, std, out_dir, epochs, batch_size, d_repeat):
-    rows_per_part = len(q_base)
-    train_idx = repeat_d_indices(np.arange(len(y)), q_base, rows_per_part, d_repeat)
+def build_synthetic_features(synthetic_dataset, words, word_to_id, out_dir, force=False):
+    synthetic_dataset = Path(synthetic_dataset)
+    empty_x = np.zeros((0, 1224), dtype=np.float32)
+    empty_y = np.zeros((0,), dtype=np.int64)
+    if not synthetic_dataset.exists():
+        return empty_x, empty_y, [], []
+
+    rows, _, skipped = discover_dataset(synthetic_dataset)
+    rows = [row for row in rows if row["quality"] == "N" and row["word"] in word_to_id]
+    rows.sort(key=lambda row: (word_to_id[row["word"]], row["path"]))
+    cache_path = out_dir / "synthetic_tts_features.npz"
+    expected_paths = [row["path"] for row in rows]
+    if cache_path.exists() and not force:
+        data = np.load(cache_path, allow_pickle=True)
+        cached_paths = data["paths"].tolist()
+        if cached_paths == expected_paths:
+            return data["x"].astype(np.float32), data["y"].astype(np.int64), rows, skipped
+
+    vectors = []
+    labels = []
+    total = len(rows)
+    for idx, row in enumerate(rows, 1):
+        vectors.append(vector_from_audio_path(row["path"]).reshape(-1))
+        labels.append(word_to_id[row["word"]])
+        if idx % 100 == 0 or idx == total:
+            print(f"synthetic TTS features {idx}/{total}", flush=True)
+    if vectors:
+        x = np.stack(vectors).astype(np.float32)
+        y = np.asarray(labels, dtype=np.int64)
+    else:
+        x = empty_x
+        y = empty_y
+    np.savez_compressed(
+        cache_path,
+        x=x,
+        y=y,
+        paths=np.asarray(expected_paths, dtype=object),
+        words=np.asarray(words, dtype=object),
+        skipped=np.asarray(skipped, dtype=object),
+    )
+    return x, y, rows, skipped
+
+
+def fit_production_model(
+    x,
+    y,
+    quality_by_index,
+    words,
+    references,
+    mean,
+    std,
+    out_dir,
+    epochs,
+    batch_size,
+    d_repeat,
+    synthetic_rows=None,
+    word_to_id=None,
+):
+    train_idx = repeat_d_indices(np.arange(len(y)), quality_by_index, d_repeat)
     train_ds = TensorDataset(torch.from_numpy(x[train_idx]), torch.from_numpy(y[train_idx]).long())
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
 
@@ -200,7 +270,7 @@ def fit_production_model(x, y, q_base, words, references, mean, std, out_dir, ep
     model_path = out_dir / "mlp_word_model.pt"
     torch.save(checkpoint, model_path)
     export_numpy_model(model, checkpoint, out_dir)
-    export_reference_vectors(words, mean, std, out_dir)
+    export_reference_vectors(words, mean, std, out_dir, synthetic_rows=synthetic_rows, word_to_id=word_to_id)
     return history
 
 
@@ -211,6 +281,9 @@ def main():
     parser.add_argument("--epochs", type=int, default=60)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--d-repeat", type=int, default=2, help="Repeat incorrect/D training samples to improve correction recall")
+    parser.add_argument("--synthetic-dataset", default="synthetic_tts_dataset", help="Optional generated clean TTS dataset")
+    parser.add_argument("--synthetic-repeat", type=int, default=2, help="Repeat synthetic clean TTS samples in training")
+    parser.add_argument("--force-synthetic-cache", action="store_true")
     parser.add_argument("--production-only-epochs", type=int, default=0, help="Skip validation and train/export the final all-data model for N epochs")
     parser.add_argument("--skip-production-final", action="store_true", help="Only export the best validation checkpoint")
     args = parser.parse_args()
@@ -230,10 +303,25 @@ def main():
     clean = load_features(out_dir / "sklearn_features_cache.npz")
     noise_paths = sorted(out_dir.glob("sklearn_noise_features_cache_*.npz"))
     noise_sets = [load_features(path) for path in noise_paths]
+    synthetic_x, synthetic_y, synthetic_rows, synthetic_skipped = build_synthetic_features(
+        args.synthetic_dataset,
+        words,
+        word_to_id,
+        out_dir,
+        force=args.force_synthetic_cache,
+    )
     x_parts = [clean] + noise_sets
     y_parts = [y_base for _ in x_parts]
+    q_parts = [q_base for _ in x_parts]
+    synthetic_start = sum(part.shape[0] for part in x_parts)
+    if synthetic_x.shape[0] > 0 and args.synthetic_repeat > 0:
+        for _ in range(args.synthetic_repeat):
+            x_parts.append(synthetic_x)
+            y_parts.append(synthetic_y)
+            q_parts.append(np.full((synthetic_x.shape[0],), "N", dtype=object))
     x = np.concatenate(x_parts, axis=0)
     y = np.concatenate(y_parts, axis=0)
+    quality_by_index = np.concatenate(q_parts, axis=0)
 
     mean = x.mean(axis=0, keepdims=True)
     std = x.std(axis=0, keepdims=True) + 1e-6
@@ -243,7 +331,7 @@ def main():
         history = fit_production_model(
             x,
             y,
-            q_base,
+            quality_by_index,
             words,
             manifest.get("references", {}),
             mean,
@@ -252,6 +340,8 @@ def main():
             args.production_only_epochs,
             args.batch_size,
             args.d_repeat,
+            synthetic_rows=synthetic_rows,
+            word_to_id=word_to_id,
         )
         summary_path = out_dir / "mlp_training_summary.json"
         if summary_path.exists():
@@ -264,6 +354,9 @@ def main():
                 "production_trained_on_all_data": True,
                 "production_epochs": args.production_only_epochs,
                 "production_history": history,
+                "synthetic_tts_samples": len(synthetic_rows),
+                "synthetic_tts_repeats": args.synthetic_repeat,
+                "synthetic_tts_skipped": synthetic_skipped,
             }
         )
         with summary_path.open("w", encoding="utf-8") as handle:
@@ -274,8 +367,15 @@ def main():
 
     base_indices = np.arange(len(rows))
     train_base, val_base = train_test_split(base_indices, test_size=0.18, random_state=7, stratify=y_base)
-    train_idx = np.concatenate([train_base + part_idx * len(rows) for part_idx in range(len(x_parts))])
-    train_idx = repeat_d_indices(train_idx, q_base, len(rows), args.d_repeat)
+    real_part_count = 1 + len(noise_sets)
+    train_idx = np.concatenate([train_base + part_idx * len(rows) for part_idx in range(real_part_count)])
+    if synthetic_x.shape[0] > 0 and args.synthetic_repeat > 0:
+        synthetic_indices = []
+        for repeat_idx in range(args.synthetic_repeat):
+            start = synthetic_start + repeat_idx * synthetic_x.shape[0]
+            synthetic_indices.append(np.arange(start, start + synthetic_x.shape[0]))
+        train_idx = np.concatenate([train_idx] + synthetic_indices)
+    train_idx = repeat_d_indices(train_idx, quality_by_index, args.d_repeat)
     val_clean_idx = val_base
     val_noise_idx = val_base + len(rows) if noise_sets else val_base
 
@@ -364,6 +464,9 @@ def main():
         "best_epoch": int(checkpoint.get("best_epoch", args.epochs)),
         "noise_copies": len(noise_sets),
         "d_repeat": args.d_repeat,
+        "synthetic_tts_samples": len(synthetic_rows),
+        "synthetic_tts_repeats": args.synthetic_repeat,
+        "synthetic_tts_skipped": synthetic_skipped,
         "clean_accuracy": float(accuracy_score(clean_true, clean_pred)),
         "clean_d_accuracy": clean_split["D"],
         "clean_n_accuracy": clean_split["N"],
@@ -384,7 +487,7 @@ def main():
         summary["production_history"] = fit_production_model(
             x,
             y,
-            q_base,
+            quality_by_index,
             words,
             manifest.get("references", {}),
             mean,
@@ -393,6 +496,8 @@ def main():
             production_epochs,
             args.batch_size,
             args.d_repeat,
+            synthetic_rows=synthetic_rows,
+            word_to_id=word_to_id,
         )
         summary["production_trained_on_all_data"] = True
         summary["production_epochs"] = production_epochs
